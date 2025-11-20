@@ -1,0 +1,4 @@
+.idea
+docker-compose.override.yaml
+.env
+CLAUDE.md
