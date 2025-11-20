@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strings"
 	"syscall"
 )
 
@@ -112,7 +113,6 @@ func parseEnvVars(envString string) []string {
 		return []string{}
 	}
 
-	// Simple split - doesn't handle quoted values with spaces
-	// For our use case this is fine
-	return []string{envString}
+	vars := strings.Fields(envString)
+	return vars
 }

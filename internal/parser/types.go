@@ -62,7 +62,7 @@ func IsServiceRequired(serviceName string) bool {
 
 // IsRegistrator controlla se un servizio è un registrator
 func IsRegistrator(serviceName string) bool {
-	return len(serviceName) > 11 && serviceName[len(serviceName)-11:] == "-registrator"
+	return len(serviceName) > 12 && serviceName[len(serviceName)-12:] == "-registrator"
 }
 
 // GetParentService estrae il nome del servizio parent da un registrator

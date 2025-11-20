@@ -136,7 +136,7 @@ func (a *App) executeFromConfig() error {
 	}
 
 	fmt.Printf("🚀 Starting Carbonio %s...\n\n", a.edition)
-	fmt.Printf("Command: %s %s\n\n", envVars, cmdParts)
+	log.Printf("Command: %s %v\n", envVars, cmdParts)
 
 	// Execute
 	outputChan := make(chan string, 100)
@@ -159,7 +159,8 @@ func (a *App) Init() tea.Cmd {
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		if msg.String() == "ctrl+c" {
+		if msg.String() == "ctrl+c" && a.currentScreen != ScreenMonitor {
+			// Allow ctrl+c to quit, except in monitor screen where it stops docker
 			return a, tea.Quit
 		}
 
@@ -185,6 +186,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case MonitorCompletedMsg:
 		// Docker compose finished
+		log.Println("Docker compose finished in app")
 		return a, tea.Quit
 	}
 
@@ -319,6 +321,6 @@ func (a *App) handleServicesConfirmed(msg ServicesConfirmedMsg) (tea.Model, tea.
 	a.currentScreen = ScreenMonitor
 	a.monitorModel = NewMonitorModel(a.executor, envVars, cmdParts)
 
-	log.Println("Switching to monitor screen")
+	log.Println("Starting monitor screen")
 	return a, a.monitorModel.Start()
 }

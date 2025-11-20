@@ -32,6 +32,9 @@ var (
 	requiredTagStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#FFFFFF")) // Bianco per tag required
 
+	lockedTagStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#666666")) // Grigio per tag locked
+
 	inputStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#7D56F4"))
 )
@@ -50,6 +53,7 @@ type ServiceItem struct {
 	Selected     bool
 	IsBackend    bool
 	IsRequired   bool // Se true, non può essere deselezionato
+	TagLocked    bool // Se true, il tag non può essere modificato (es: local builds)
 	Dependencies []string
 }
 
@@ -88,7 +92,7 @@ func NewServicesModel(parsedConfig *parser.ParsedConfig, resolver *graph.Depende
 		viewHeight:   20,
 	}
 
-	// Create backend items - escludi registrator e servizi con tag "local"
+	// Create backend items - escludi SOLO i registrator (anche quelli local)
 	var requiredBackend []*ServiceItem
 	var optionalBackend []*ServiceItem
 
@@ -101,17 +105,14 @@ func NewServicesModel(parsedConfig *parser.ParsedConfig, resolver *graph.Depende
 	for _, name := range backendNames {
 		svc := parsedConfig.BackendServices[name]
 
-		// Nascondi i registrator dalla UI
+		// NASCONDI i registrator dalla UI (sia normali che local)
 		if svc.IsRegistrator {
-			log.Printf("Hiding registrator from UI: %s", name)
+			log.Printf("Hiding registrator from UI: %s (will be auto-added based on parent service)", name)
 			continue
 		}
 
-		// Nascondi servizi con tag "local" (build locali)
-		if svc.DefaultTag == "local" {
-			log.Printf("Hiding local build service from UI: %s", name)
-			continue
-		}
+		// Ora mostriamo anche i servizi con tag "local", ma lockiamo il tag
+		tagLocked := svc.DefaultTag == "local"
 
 		item := &ServiceItem{
 			Name:         name,
@@ -120,6 +121,7 @@ func NewServicesModel(parsedConfig *parser.ParsedConfig, resolver *graph.Depende
 			Selected:     true,
 			IsBackend:    true,
 			IsRequired:   svc.IsRequired,
+			TagLocked:    tagLocked,
 			Dependencies: svc.DependsOn,
 		}
 
@@ -130,13 +132,13 @@ func NewServicesModel(parsedConfig *parser.ParsedConfig, resolver *graph.Depende
 			optionalBackend = append(optionalBackend, item)
 		}
 
-		log.Printf("Backend item: %s (tag=%s, required=%v)", name, svc.DefaultTag, svc.IsRequired)
+		log.Printf("Backend item: %s (tag=%s, required=%v, locked=%v)", name, svc.DefaultTag, svc.IsRequired, tagLocked)
 	}
 
 	// Combina: required prima, poi optional
 	m.backendItems = append(requiredBackend, optionalBackend...)
 
-	// Create frontend items - escludi servizi con tag "local"
+	// Create frontend items - includi anche servizi con tag "local"
 	var requiredFrontend []*ServiceItem
 	var optionalFrontend []*ServiceItem
 
@@ -149,11 +151,8 @@ func NewServicesModel(parsedConfig *parser.ParsedConfig, resolver *graph.Depende
 	for _, name := range frontendNames {
 		ui := parsedConfig.FrontendImages[name]
 
-		// Nascondi UI con tag "local"
-		if ui.DefaultTag == "local" {
-			log.Printf("Hiding local build UI from display: %s", name)
-			continue
-		}
+		// Mostriamo anche le UI con tag "local", ma lockiamo il tag
+		tagLocked := ui.DefaultTag == "local"
 
 		item := &ServiceItem{
 			Name:       name,
@@ -162,6 +161,7 @@ func NewServicesModel(parsedConfig *parser.ParsedConfig, resolver *graph.Depende
 			Selected:   true,
 			IsBackend:  false,
 			IsRequired: ui.IsProxy,
+			TagLocked:  tagLocked,
 		}
 
 		// Separa required da optional
@@ -171,14 +171,13 @@ func NewServicesModel(parsedConfig *parser.ParsedConfig, resolver *graph.Depende
 			optionalFrontend = append(optionalFrontend, item)
 		}
 
-		log.Printf("Frontend item: %s (tag=%s, proxy=%v)", name, ui.DefaultTag, ui.IsProxy)
+		log.Printf("Frontend item: %s (tag=%s, proxy=%v, locked=%v)", name, ui.DefaultTag, ui.IsProxy, tagLocked)
 	}
 
 	// Combina: required prima, poi optional
 	m.frontendItems = append(requiredFrontend, optionalFrontend...)
 
-	log.Printf("Created model with %d backend items, %d frontend items (hidden: registrators and local builds)",
-		len(m.backendItems), len(m.frontendItems))
+	log.Printf("Created model with %d backend items, %d frontend items (registrators hidden, auto-managed)", len(m.backendItems), len(m.frontendItems))
 
 	return m
 }
@@ -195,13 +194,11 @@ func (m *ServicesModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		// Update viewport size when terminal is resized
-		m.viewHeight = msg.Height - 10 // Reserve space for header and footer
+		m.viewHeight = msg.Height - 8
 		if m.viewHeight < 5 {
-			m.viewHeight = 5 // Minimo 5 righe visibili
+			m.viewHeight = 5
 		}
 		log.Printf("Window resized: height=%d, viewHeight=%d", msg.Height, m.viewHeight)
-		// Ricalcola view offset per mantenere cursor visibile
 		m.adjustViewOffset()
 
 	case tea.KeyMsg:
@@ -240,7 +237,7 @@ func (m *ServicesModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toggleSelection()
 
 		case "e":
-			// Edit tag (sempre possibile)
+			// Edit tag (solo se non locked)
 			m.startTagEdit()
 
 		case "enter":
@@ -259,6 +256,7 @@ func (m *ServicesModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *ServicesModel) View() string {
 	var s strings.Builder
 
+	// HEADER FISSO - sempre in cima
 	s.WriteString(titleStyle.Render("🔧 Select Services and UI Images"))
 	s.WriteString("\n")
 	s.WriteString(helpStyle.Render(fmt.Sprintf("Edition: %s", m.edition)))
@@ -273,56 +271,31 @@ func (m *ServicesModel) View() string {
 		endIdx = totalItems
 	}
 
-	// Show scroll indicators
-	if m.viewOffset > 0 {
-		s.WriteString(helpStyle.Render("  ▲ More items above\n"))
+	// SEMPRE mostra il titolo Services
+	s.WriteString(sectionStyle.Render("Services:"))
+	s.WriteString("\n")
+
+	// Renderizza backend items visibili
+	for i := 0; i < len(m.backendItems); i++ {
+		if i >= startIdx && i < endIdx {
+			s.WriteString(m.renderItem(i, m.backendItems[i]))
+		}
 	}
 
-	itemIndex := 0
-	backendSectionShown := false
-	frontendSectionShown := false
+	// SEMPRE mostra il titolo Composed UI
+	s.WriteString("\n")
+	s.WriteString(sectionStyle.Render("Composed UI:"))
+	s.WriteString("\n")
 
-	// Backend section (ora chiamata "Services")
-	for i, item := range m.backendItems {
-		if itemIndex == 0 && itemIndex >= startIdx && itemIndex < endIdx {
-			if !backendSectionShown {
-				s.WriteString(sectionStyle.Render("Services:"))
-				s.WriteString("\n")
-				backendSectionShown = true
-			}
-		}
-
-		if itemIndex >= startIdx && itemIndex < endIdx {
-			if !backendSectionShown {
-				s.WriteString(sectionStyle.Render("Services:"))
-				s.WriteString("\n")
-				backendSectionShown = true
-			}
-			s.WriteString(m.renderItem(i, item))
-		}
-		itemIndex++
-	}
-
-	// Frontend section (ora chiamata "Composed UI")
-	for i, item := range m.frontendItems {
+	// Renderizza frontend items visibili
+	for i := 0; i < len(m.frontendItems); i++ {
 		globalIndex := len(m.backendItems) + i
-
 		if globalIndex >= startIdx && globalIndex < endIdx {
-			if !frontendSectionShown {
-				s.WriteString("\n")
-				s.WriteString(sectionStyle.Render("Composed UI:"))
-				s.WriteString("\n")
-				frontendSectionShown = true
-			}
-			s.WriteString(m.renderItem(globalIndex, item))
+			s.WriteString(m.renderItem(globalIndex, m.frontendItems[i]))
 		}
 	}
 
-	// Show scroll indicators
-	if endIdx < totalItems {
-		s.WriteString(helpStyle.Render("  ▼ More items below\n"))
-	}
-
+	// FOOTER FISSO
 	s.WriteString("\n")
 	if m.editingTag {
 		s.WriteString(helpStyle.Render("Editing tag: type to modify • enter: confirm • esc: cancel"))
@@ -354,27 +327,33 @@ func (m *ServicesModel) renderItem(index int, item *ServiceItem) string {
 		checkbox = "[●]" // Sempre selezionato, non modificabile
 	}
 
-	// Tag display
+	// Tag display - NON mostrare "disabled" per UI deselezionate
 	tag := item.DefaultTag
 	if item.CustomTag != "" {
 		tag = item.CustomTag
 	}
 
-	// Se non selezionato e frontend, mostra "disabled"
-	if !item.Selected && !item.IsBackend {
-		tag = "disabled"
-	}
-
-	// Costruisci la linea in base a se è required
+	// Costruisci la linea in base allo stato
 	var line string
 	if item.IsRequired {
-		// Required: nome grigio, tag bianco, no [REQUIRED]
+		// Required: nome grigio, tag bianco o grigio se locked
 		namePart := requiredNameStyle.Render(fmt.Sprintf("%s %s %s", cursor, checkbox, item.Name))
-		tagPart := requiredTagStyle.Render(fmt.Sprintf("(%s)", tag))
+		var tagPart string
+		if item.TagLocked {
+			tagPart = lockedTagStyle.Render(fmt.Sprintf("(%s)", tag))
+		} else {
+			tagPart = requiredTagStyle.Render(fmt.Sprintf("(%s)", tag))
+		}
 		line = namePart + " " + tagPart
 	} else {
-		// Normale: tutto stesso colore
-		line = fmt.Sprintf("%s %s %s (%s)", cursor, checkbox, item.Name, tag)
+		// Normale: tutto stesso colore, ma tag locked in grigio
+		if item.TagLocked {
+			namePart := fmt.Sprintf("%s %s %s", cursor, checkbox, item.Name)
+			tagPart := lockedTagStyle.Render(fmt.Sprintf("(%s)", tag))
+			line = namePart + " " + tagPart
+		} else {
+			line = fmt.Sprintf("%s %s %s (%s)", cursor, checkbox, item.Name, tag)
+		}
 	}
 
 	// Se stiamo editando questo item
@@ -442,13 +421,9 @@ func (m *ServicesModel) autoSelectRegistrator(item *ServiceItem) {
 
 	log.Printf("Looking for registrator: %s", registratorName)
 
-	// Cerca e seleziona il registrator
-	for _, backendItem := range m.backendItems {
-		if backendItem.Name == registratorName {
-			backendItem.Selected = true
-			log.Printf("  - Auto-selected registrator: %s", registratorName)
-			break
-		}
+	// Cerca e seleziona il registrator (anche se nascosto dalla UI)
+	if _, exists := m.parsedConfig.BackendServices[registratorName]; exists {
+		log.Printf("  - Auto-selected registrator: %s", registratorName)
 	}
 }
 
@@ -463,23 +438,17 @@ func (m *ServicesModel) autoDeselectRegistrator(item *ServiceItem) {
 
 	log.Printf("Deselecting registrator: %s", registratorName)
 
-	// Cerca e deseleziona il registrator
-	for _, backendItem := range m.backendItems {
-		if backendItem.Name == registratorName {
-			backendItem.Selected = false
-			log.Printf("  - Auto-deselected registrator: %s", registratorName)
-			break
-		}
-	}
+	// Il registrator verrà automaticamente escluso in confirm()
 }
 
 func (m *ServicesModel) startTagEdit() {
 	item := m.getCurrentItem()
-	if item == nil {
+	if item == nil || item.TagLocked {
+		// Non permettere editing se il tag è locked (es: local builds)
+		log.Printf("Cannot edit tag for %s: tag is locked", item.Name)
 		return
 	}
 
-	// Il tag può sempre essere editato, anche per servizi required
 	m.editingTag = true
 	m.editingIndex = m.cursor
 
@@ -497,7 +466,7 @@ func (m *ServicesModel) handleTagEdit(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			// Confirm tag edit
 			item := m.getCurrentItem()
-			if item != nil {
+			if item != nil && !item.TagLocked {
 				item.CustomTag = m.editingBuffer
 			}
 			m.editingTag = false
@@ -535,11 +504,11 @@ func (m *ServicesModel) confirm() (tea.Model, tea.Cmd) {
 
 	log.Printf("Building backend selection from %d visible items", len(m.backendItems))
 
-	// Backend: include servizi selezionati + registrator + servizi con tag "local"
+	// Backend: include servizi selezionati + registrator
 	for _, item := range m.backendItems {
 		if item.Selected {
 			tag := item.DefaultTag
-			if item.CustomTag != "" {
+			if item.CustomTag != "" && !item.TagLocked {
 				tag = item.CustomTag
 			}
 			backend[item.Name] = tag
@@ -560,45 +529,22 @@ func (m *ServicesModel) confirm() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Aggiungi TUTTI i servizi con tag "local" (erano nascosti dalla UI)
-	for name, svc := range m.parsedConfig.BackendServices {
-		if svc.DefaultTag == "local" && !svc.IsRegistrator {
-			backend[name] = svc.DefaultTag
-			log.Printf("  Auto-added local service: %s -> %s", name, svc.DefaultTag)
-		}
-	}
-
-	// Aggiungi registrator con tag "local"
-	for name, svc := range m.parsedConfig.BackendServices {
-		if svc.IsRegistrator && svc.DefaultTag == "local" {
-			backend[name] = svc.DefaultTag
-			log.Printf("  Auto-added local registrator: %s -> %s", name, svc.DefaultTag)
-		}
-	}
-
 	log.Printf("Building frontend selection from %d visible items", len(m.frontendItems))
 
-	// Frontend: TUTTI devono essere presenti (anche quelli con tag "local")
+	// Frontend: TUTTI devono essere presenti, "disabled" solo internamente
 	for _, item := range m.frontendItems {
 		tag := item.DefaultTag
-		if item.CustomTag != "" {
+		if item.CustomTag != "" && !item.TagLocked {
 			tag = item.CustomTag
 		}
 
+		// Se non selezionato, usa "disabled" per docker ma NON nel display
 		if !item.Selected {
 			tag = "disabled"
 		}
 
 		frontend[item.Name] = tag
 		log.Printf("  Frontend: %s -> %s", item.Name, tag)
-	}
-
-	// Aggiungi UI con tag "local" (erano nascoste dalla UI)
-	for name, ui := range m.parsedConfig.FrontendImages {
-		if ui.DefaultTag == "local" {
-			frontend[name] = ui.DefaultTag
-			log.Printf("  Auto-added local UI: %s -> %s", name, ui.DefaultTag)
-		}
 	}
 
 	log.Printf("Sending confirmation message with %d backend, %d frontend", len(backend), len(frontend))
@@ -620,7 +566,7 @@ func (m *ServicesModel) exportConfig() (tea.Model, tea.Cmd) {
 	for _, item := range m.backendItems {
 		if item.Selected {
 			tag := item.DefaultTag
-			if item.CustomTag != "" {
+			if item.CustomTag != "" && !item.TagLocked {
 				tag = item.CustomTag
 			}
 			backend[item.Name] = tag
@@ -642,17 +588,10 @@ func (m *ServicesModel) exportConfig() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Aggiungi TUTTI i servizi con tag "local"
-	for name, svc := range m.parsedConfig.BackendServices {
-		if svc.DefaultTag == "local" {
-			backend[name] = svc.DefaultTag
-		}
-	}
-
 	// Frontend: TUTTI devono essere presenti
 	for _, item := range m.frontendItems {
 		tag := item.DefaultTag
-		if item.CustomTag != "" {
+		if item.CustomTag != "" && !item.TagLocked {
 			tag = item.CustomTag
 		}
 
@@ -661,13 +600,6 @@ func (m *ServicesModel) exportConfig() (tea.Model, tea.Cmd) {
 		}
 
 		frontend[item.Name] = tag
-	}
-
-	// Aggiungi UI con tag "local"
-	for name, ui := range m.parsedConfig.FrontendImages {
-		if ui.DefaultTag == "local" {
-			frontend[name] = ui.DefaultTag
-		}
 	}
 
 	// Create config
