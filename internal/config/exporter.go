@@ -16,7 +16,7 @@ func ExportConfig(filePath string, config *UserConfig) error {
 	}
 
 	// Write to file
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
+	if err := os.WriteFile(filePath, data, 0755); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 

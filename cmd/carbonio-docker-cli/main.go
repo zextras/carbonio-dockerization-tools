@@ -44,7 +44,7 @@ func main() {
 	}
 
 	// Setup logging - SEMPRE attivo per debug
-	logFile, err := os.OpenFile("carbonio-docker-cli.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	logFile, err := os.OpenFile("carbonio-docker-cli.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0755)
 	if err != nil {
 		fmt.Printf("Warning: Failed to open log file: %v\n", err)
 	} else {
