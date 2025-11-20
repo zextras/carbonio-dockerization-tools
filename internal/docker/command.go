@@ -3,7 +3,6 @@ package docker
 import (
 	"carbonio-docker-cli/internal/parser"
 	"fmt"
-	"s
 	"strings"
 )
 
