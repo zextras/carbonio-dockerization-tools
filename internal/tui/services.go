@@ -16,9 +16,8 @@ import (
 var (
 	sectionStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#FFA500")).
-			MarginTop(1).
-			MarginBottom(1)
+			Foreground(lipgloss.Color("#FFA500"))
+	// Rimossi MarginTop e MarginBottom
 
 	checkboxStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFFFFF"))
@@ -259,7 +258,13 @@ func (m *ServicesModel) View() string {
 	// HEADER FISSO - sempre in cima
 	s.WriteString(titleStyle.Render("🔧 Select Services and UI Images"))
 	s.WriteString("\n")
-	s.WriteString(helpStyle.Render(fmt.Sprintf("Edition: %s", m.edition)))
+
+	// Formatta edition name in modo carino
+	editionName := "CE (Community Edition)"
+	if m.edition == parser.EditionAdvanced {
+		editionName = "Advanced"
+	}
+	s.WriteString(helpStyle.Render(fmt.Sprintf("Edition: %s", editionName)))
 	s.WriteString("\n\n")
 
 	totalItems := len(m.backendItems) + len(m.frontendItems)
