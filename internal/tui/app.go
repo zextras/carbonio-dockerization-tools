@@ -18,6 +18,8 @@ const (
 	ScreenStartup Screen = iota
 	ScreenEdition
 	ScreenServices
+	ScreenConfigSave
+	ScreenFilePicker
 	ScreenMonitor
 )
 
@@ -28,16 +30,20 @@ type App struct {
 	currentScreen Screen
 
 	// Models for each screen
-	startupModel  *StartupModel
-	editionModel  *EditionModel
-	servicesModel *ServicesModel
-	monitorModel  *MonitorModel
+	startupModel    *StartupModel
+	editionModel    *EditionModel
+	servicesModel   *ServicesModel
+	configSaveModel *ConfigSaveModel
+	filePickerModel *FilePickerModel
+	monitorModel    *MonitorModel
 
 	// Shared data
-	parsedConfig *parser.ParsedConfig
-	userConfig   *config.UserConfig
-	edition      parser.Edition
-	executor     *docker.Executor
+	parsedConfig    *parser.ParsedConfig
+	userConfig      *config.UserConfig
+	edition         parser.Edition
+	executor        *docker.Executor
+	pendingBackend  map[string]string
+	pendingFrontend map[string]string
 }
 
 // NewApp creates a new application instance
@@ -59,9 +65,9 @@ func (a *App) Run() error {
 	}
 	fmt.Println("✓ Cleanup complete\n")
 
-	// If config file provided, load it directly
+	// If config file provided via flag, load it directly
 	if a.configFile != "" {
-		return a.runWithConfig()
+		return a.runWithConfig(a.configFile)
 	}
 
 	// Start interactive mode
@@ -75,9 +81,9 @@ func (a *App) Run() error {
 	return nil
 }
 
-// runWithConfig loads config and starts directly
-func (a *App) runWithConfig() error {
-	log.Println("=== Running with config file ===")
+// runWithConfig loads config from file and starts directly
+func (a *App) runWithConfig(filePath string) error {
+	log.Printf("=== Running with config file: %s ===", filePath)
 
 	// Parse docker files first
 	parsedConfig, err := parser.ParseAll(a.workDir, parser.EditionCE)
@@ -86,7 +92,7 @@ func (a *App) runWithConfig() error {
 	}
 
 	// Load user config
-	userConfig, err := config.LoadConfig(a.configFile, parsedConfig)
+	userConfig, err := config.LoadConfig(filePath, parsedConfig)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
@@ -168,7 +174,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case StartupChoiceMsg:
 		if msg.ImportConfig {
 			// User wants to import config - show file picker
-			return a.handleImportConfig()
+			a.currentScreen = ScreenFilePicker
+			a.filePickerModel = NewFilePickerModel()
+			return a, a.filePickerModel.Init()
 		} else {
 			// User wants custom config - show edition selection
 			a.currentScreen = ScreenEdition
@@ -182,8 +190,36 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a.handleEditionChoice()
 
 	case ServicesConfirmedMsg:
-		// User confirmed service selection - execute
-		return a.handleServicesConfirmed(msg)
+		// User confirmed service selection - go to config save screen
+		a.pendingBackend = msg.Backend
+		a.pendingFrontend = msg.Frontend
+		a.currentScreen = ScreenConfigSave
+		a.configSaveModel = NewConfigSaveModel(a.edition)
+		return a, nil
+
+	case ConfigSaveChoiceMsg:
+		// User decided about config save
+		if msg.WantsSave && msg.Filename != "" {
+			// Save config
+			if err := a.saveConfig(msg.Filename); err != nil {
+				log.Printf("Failed to save config: %v", err)
+				// Continue anyway
+			}
+		}
+		// Now execute
+		return a.handleExecute()
+
+	case FilePickerChoiceMsg:
+		// User selected a config file
+		if msg.Cancelled {
+			// Go back to startup
+			a.currentScreen = ScreenStartup
+			a.startupModel = NewStartupModel()
+			return a, nil
+		}
+
+		// Load and execute config
+		return a.handleFilePickerChoice(msg.FilePath)
 
 	case MonitorCompletedMsg:
 		// Docker compose finished
@@ -214,6 +250,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, cmd
 		}
 
+	case ScreenConfigSave:
+		if a.configSaveModel != nil {
+			newModel, cmd := a.configSaveModel.Update(msg)
+			a.configSaveModel = newModel.(*ConfigSaveModel)
+			return a, cmd
+		}
+
+	case ScreenFilePicker:
+		if a.filePickerModel != nil {
+			newModel, cmd := a.filePickerModel.Update(msg)
+			a.filePickerModel = newModel.(*FilePickerModel)
+			return a, cmd
+		}
+
 	case ScreenMonitor:
 		if a.monitorModel != nil {
 			newModel, cmd := a.monitorModel.Update(msg)
@@ -239,6 +289,14 @@ func (a *App) View() string {
 		if a.servicesModel != nil {
 			return a.servicesModel.View()
 		}
+	case ScreenConfigSave:
+		if a.configSaveModel != nil {
+			return a.configSaveModel.View()
+		}
+	case ScreenFilePicker:
+		if a.filePickerModel != nil {
+			return a.filePickerModel.View()
+		}
 	case ScreenMonitor:
 		if a.monitorModel != nil {
 			return a.monitorModel.View()
@@ -249,13 +307,6 @@ func (a *App) View() string {
 }
 
 // Helper methods
-
-func (a *App) handleImportConfig() (tea.Model, tea.Cmd) {
-	// TODO: Implement file picker
-	// For now, just show error
-	fmt.Println("File picker not implemented yet. Use --config flag instead.")
-	return a, tea.Quit
-}
 
 func (a *App) handleEditionChoice() (tea.Model, tea.Cmd) {
 	log.Printf("=== Edition choice: %s ===", a.edition)
@@ -284,24 +335,24 @@ func (a *App) handleEditionChoice() (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-func (a *App) handleServicesConfirmed(msg ServicesConfirmedMsg) (tea.Model, tea.Cmd) {
-	log.Println("=== Services confirmed ===")
-	log.Printf("Backend services: %d", len(msg.Backend))
-	log.Printf("Frontend images: %d", len(msg.Frontend))
+func (a *App) handleExecute() (tea.Model, tea.Cmd) {
+	log.Println("=== Executing services ===")
+	log.Printf("Backend services: %d", len(a.pendingBackend))
+	log.Printf("Frontend images: %d", len(a.pendingFrontend))
 
 	// Build docker compose command
 	builder := docker.NewCommandBuilder(a.workDir, a.edition, a.parsedConfig)
 
 	// Set backend services
 	log.Println("Setting backend services...")
-	for serviceName, tag := range msg.Backend {
+	for serviceName, tag := range a.pendingBackend {
 		builder.SetBackendService(serviceName, tag)
 		log.Printf("  - %s: %s", serviceName, tag)
 	}
 
 	// Set frontend images
 	log.Println("Setting frontend images...")
-	for uiName, tag := range msg.Frontend {
+	for uiName, tag := range a.pendingFrontend {
 		builder.SetFrontendImage(uiName, tag)
 		log.Printf("  - %s: %s", uiName, tag)
 	}
@@ -324,4 +375,36 @@ func (a *App) handleServicesConfirmed(msg ServicesConfirmedMsg) (tea.Model, tea.
 
 	log.Println("Starting monitor screen")
 	return a, a.monitorModel.Start()
+}
+
+func (a *App) handleFilePickerChoice(filePath string) (tea.Model, tea.Cmd) {
+	log.Printf("=== File picker choice: %s ===", filePath)
+
+	// Run with selected config file
+	if err := a.runWithConfig(filePath); err != nil {
+		log.Printf("ERROR: Failed to run with config: %v", err)
+		fmt.Printf("\n❌ Error loading config: %v\n", err)
+		return a, tea.Quit
+	}
+
+	return a, tea.Quit
+}
+
+func (a *App) saveConfig(filename string) error {
+	log.Printf("Saving config to: %s", filename)
+
+	// Create user config
+	userConfig := config.CreateUserConfig(
+		string(a.edition),
+		a.pendingBackend,
+		a.pendingFrontend,
+	)
+
+	// Export to file
+	if err := config.ExportConfig(filename, userConfig); err != nil {
+		return fmt.Errorf("failed to export config: %w", err)
+	}
+
+	log.Printf("Config saved successfully to: %s", filename)
+	return nil
 }

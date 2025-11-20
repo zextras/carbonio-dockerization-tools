@@ -107,6 +107,7 @@ func (e *Extractor) extractAll() error {
 			return fmt.Errorf("failed to create parent dir for %s: %w", targetPath, err)
 		}
 
+		// Write file with 0755 permissions (executable)
 		if err := os.WriteFile(targetPath, data, 0755); err != nil {
 			return fmt.Errorf("failed to write file %s: %w", targetPath, err)
 		}

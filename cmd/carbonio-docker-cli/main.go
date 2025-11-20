@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -25,37 +26,38 @@ const registryHost = "registry.dev.zextras.com:443"
 func main() {
 	// Parse flags
 	var configFile string
+	var saveLogs bool
 
 	for i, arg := range os.Args[1:] {
 		switch arg {
-		case "--version", "-v":
-			fmt.Printf("carbonio-docker-cli %s\n", version)
-			fmt.Printf("  commit: %s\n", commit)
-			fmt.Printf("  built:  %s\n", date)
-			os.Exit(0)
-		case "--config":
+		case "--config-file":
 			if i+1 < len(os.Args[1:]) {
 				configFile = os.Args[i+2]
 			}
-		case "--help", "-h":
-			printHelp()
-			os.Exit(0)
+		case "--save-logs":
+			saveLogs = true
 		}
 	}
 
-	// Setup logging - SEMPRE attivo per debug
-	logFile, err := os.OpenFile("carbonio-docker-cli.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0755)
-	if err != nil {
-		fmt.Printf("Warning: Failed to open log file: %v\n", err)
+	// Setup logging - SOLO se richiesto
+	if saveLogs {
+		logFile, err := os.OpenFile("carbonio-docker-cli.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0755)
+		if err != nil {
+			fmt.Printf("Warning: Failed to open log file: %v\n", err)
+		} else {
+			defer logFile.Close()
+			log.SetOutput(logFile)
+			log.SetFlags(log.LstdFlags | log.Lshortfile)
+		}
 	} else {
-		defer logFile.Close()
-		log.SetOutput(logFile)
-		log.SetFlags(log.LstdFlags | log.Lshortfile)
+		// Disabilita logging
+		log.SetOutput(io.Discard)
 	}
 
 	log.Println("=== Starting Carbonio Docker CLI ===")
 	log.Printf("Version: %s, Commit: %s, Date: %s", version, commit, date)
 	log.Printf("Config file: %s", configFile)
+	log.Printf("Save logs: %v", saveLogs)
 
 	// Check registry connectivity
 	fmt.Println("🔍 Checking registry connectivity...")
@@ -94,20 +96,6 @@ func main() {
 	}
 
 	log.Println("=== Application finished ===")
-}
-
-func printHelp() {
-	fmt.Println("Carbonio Docker CLI")
-	fmt.Println()
-	fmt.Println("Usage:")
-	fmt.Println("  carbonio-docker-cli [flags]")
-	fmt.Println()
-	fmt.Println("Flags:")
-	fmt.Println("  --version, -v       Show version information")
-	fmt.Println("  --config <file>     Import configuration from YAML file")
-	fmt.Println("  --help, -h          Show this help message")
-	fmt.Println()
-	fmt.Println("Logs are always saved to: carbonio-docker-cli.log")
 }
 
 // checkRegistryConnectivity verifies if the Docker registry is reachable
