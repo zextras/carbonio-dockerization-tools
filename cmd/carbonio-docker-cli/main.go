@@ -5,8 +5,11 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
+	"carbonio-docker-cli/internal/docker"
 	"carbonio-docker-cli/internal/embedded"
 	"carbonio-docker-cli/internal/tui"
 )
@@ -79,9 +82,13 @@ func main() {
 	fmt.Println("✓ Environment ready\n")
 	log.Printf("Working directory: %s", extractor.GetWorkDir())
 
+	// Setup signal handler for Ctrl+C - cleanup before exit
+	workDir := extractor.GetWorkDir()
+	setupSignalHandler(workDir)
+
 	// Start TUI application
 	log.Println("Starting TUI application...")
-	app := tui.NewApp(extractor.GetWorkDir(), configFile)
+	app := tui.NewApp(workDir, configFile)
 	if err := app.Run(); err != nil {
 		log.Fatalf("Application error: %v", err)
 	}
@@ -114,4 +121,27 @@ func checkRegistryConnectivity() error {
 	defer conn.Close()
 
 	return nil
+}
+
+// setupSignalHandler configura un handler per Ctrl+C che fa cleanup
+func setupSignalHandler(workDir string) {
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		<-sigChan
+		log.Println("Received interrupt signal, cleaning up...")
+		fmt.Println("\n🧹 Cleaning up containers...")
+
+		executor := docker.NewExecutor(workDir)
+		if err := executor.CleanupAll(); err != nil {
+			log.Printf("Cleanup failed: %v", err)
+			fmt.Printf("Warning: Cleanup failed: %v\n", err)
+		} else {
+			fmt.Println("✓ Cleanup complete")
+			log.Println("Cleanup successful")
+		}
+
+		os.Exit(0)
+	}()
 }

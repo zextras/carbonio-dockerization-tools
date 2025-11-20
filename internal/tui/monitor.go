@@ -12,7 +12,7 @@ import (
 
 var (
 	outputStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#FFFFFF")) // Output normale bianco
+		Foreground(lipgloss.Color("#FFFFFF"))
 )
 
 // MonitorCompletedMsg is sent when docker compose finishes
@@ -36,6 +36,7 @@ type MonitorModel struct {
 	maxLines    int
 	done        bool
 	err         error
+	cleaning    bool // Flag per indicare che stiamo facendo cleanup
 }
 
 // NewMonitorModel creates a new monitor model
@@ -48,6 +49,7 @@ func NewMonitorModel(executor *docker.Executor, envVars string, cmdParts []strin
 		outputLines: []string{},
 		maxLines:    30,
 		done:        false,
+		cleaning:    false,
 	}
 }
 
@@ -92,12 +94,30 @@ func (m *MonitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c":
-			log.Println("User pressed ctrl+c, stopping docker...")
-			// Stop docker compose
-			if err := m.executor.Stop(); err != nil {
-				log.Printf("Failed to stop docker: %v", err)
+			if m.cleaning {
+				// Already cleaning, ignore
+				return m, nil
 			}
-			return m, tea.Quit
+
+			log.Println("User pressed ctrl+c, stopping and cleaning up...")
+			m.cleaning = true
+			m.outputLines = append(m.outputLines, "")
+			m.outputLines = append(m.outputLines, "🧹 Stopping and cleaning up containers...")
+
+			// Stop and cleanup in a goroutine
+			go func() {
+				if err := m.executor.StopAndCleanup(); err != nil {
+					log.Printf("Failed to stop and cleanup: %v", err)
+					m.err = err
+					m.outputLines = append(m.outputLines, fmt.Sprintf("Warning: Cleanup failed: %v", err))
+				} else {
+					log.Println("Stop and cleanup successful")
+					m.outputLines = append(m.outputLines, "✓ Cleanup complete")
+				}
+				m.done = true
+			}()
+
+			return m, nil
 		}
 
 	case OutputLineMsg:
@@ -139,20 +159,22 @@ func (m *MonitorModel) View() string {
 	s.WriteString(titleStyle.Render("🚀 Starting Carbonio..."))
 	s.WriteString("\n\n")
 
-	// Show output lines - mostra l'output così come arriva da Docker
+	// Show output lines
 	for _, line := range m.outputLines {
 		s.WriteString(outputStyle.Render(line))
 		s.WriteString("\n")
 	}
 
 	s.WriteString("\n")
-	if !m.done {
-		s.WriteString(helpStyle.Render("ctrl+c: stop and exit"))
+	if m.cleaning {
+		s.WriteString(helpStyle.Render("Cleaning up... Please wait"))
+	} else if !m.done {
+		s.WriteString(helpStyle.Render("ctrl+c: stop and cleanup"))
 	} else {
 		if m.err != nil {
 			s.WriteString(helpStyle.Render("Press ctrl+c to exit"))
 		} else {
-			s.WriteString(helpStyle.Render("Docker Compose is running. Press ctrl+c to stop and exit"))
+			s.WriteString(helpStyle.Render("Docker Compose is running. Press ctrl+c to stop and cleanup"))
 		}
 	}
 

@@ -40,11 +40,8 @@ func ParseComposeFile(data []byte, edition Edition) (map[string]*ServiceDefiniti
 	services := make(map[string]*ServiceDefinition)
 
 	for name, svc := range compose.Services {
-		// Skip services with restart: "no" (provisioner, etc.)
-		if svc.Restart == "no" {
-			log.Printf("Skipping service %s (restart: no)", name)
-			continue
-		}
+		// NON skippiamo più servizi con restart:no - li trattiamo come gli altri
+		// Questo perché potrebbero essere necessari (come provisioner)
 
 		// Skip if no image and no build (shouldn't happen but be safe)
 		if svc.Image == "" && svc.Build == nil {
@@ -67,18 +64,21 @@ func ParseComposeFile(data []byte, edition Edition) (map[string]*ServiceDefiniti
 			def.DefaultImage = defaultImg
 			def.DefaultTag = extractTag(defaultImg)
 			def.DisplayName = extractImageName(defaultImg)
-			log.Printf("Service %s: env=%s, image=%s, tag=%s, display=%s", name, envVar, defaultImg, def.DefaultTag, def.DisplayName)
+			log.Printf("Service %s: env=%s, image=%s, tag=%s, display=%s, restart=%s",
+				name, envVar, defaultImg, def.DefaultTag, def.DisplayName, svc.Restart)
 		} else if svc.Image != "" {
 			// Direct image reference (no env var)
 			def.DefaultImage = svc.Image
 			def.DefaultTag = extractTag(svc.Image)
 			def.DisplayName = extractImageName(svc.Image)
-			log.Printf("Service %s: direct image=%s, tag=%s, display=%s", name, svc.Image, def.DefaultTag, def.DisplayName)
+			log.Printf("Service %s: direct image=%s, tag=%s, display=%s, restart=%s",
+				name, svc.Image, def.DefaultTag, def.DisplayName, svc.Restart)
 		} else {
 			// Build-only service (like carbonio-docs-editor)
 			def.DefaultTag = "local"
-			def.DisplayName = name // Per servizi local, usa il nome del servizio
-			log.Printf("Service %s: build-only, tag=local, display=%s", name, def.DisplayName)
+			def.DisplayName = name
+			log.Printf("Service %s: build-only, tag=local, display=%s, restart=%s",
+				name, def.DisplayName, svc.Restart)
 		}
 
 		// Extract dependencies

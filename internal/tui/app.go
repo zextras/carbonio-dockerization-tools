@@ -52,9 +52,9 @@ func NewApp(workDir, configFile string) *App {
 
 // Run starts the TUI application
 func (a *App) Run() error {
-	// Cleanup any existing containers first
+	// Cleanup any existing containers first (CE + Advanced)
 	fmt.Println("🧹 Cleaning up existing containers...")
-	if err := a.executor.CleanupExisting("advanced"); err != nil {
+	if err := a.executor.CleanupAll(); err != nil {
 		log.Printf("Warning: cleanup failed: %v", err)
 	}
 	fmt.Println("✓ Cleanup complete\n")
@@ -160,7 +160,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" && a.currentScreen != ScreenMonitor {
-			// Allow ctrl+c to quit, except in monitor screen where it stops docker
+			// Allow ctrl+c to quit in non-monitor screens
+			// Monitor screen handles its own cleanup
 			return a, tea.Quit
 		}
 

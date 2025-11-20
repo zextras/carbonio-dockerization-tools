@@ -1,10 +1,9 @@
 package embedded
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,40 +40,39 @@ func (e *Extractor) GetWorkDir() string {
 	return e.workDir
 }
 
-// EnsureExtracted ensures files are extracted and up-to-date
+// EnsureExtracted ensures files are extracted fresh every time
 func (e *Extractor) EnsureExtracted() error {
+	log.Println("Ensuring fresh workdir extraction...")
+
 	// Check if workdir exists
-	if _, err := os.Stat(e.workDir); os.IsNotExist(err) {
-		// First run - extract everything
-		return e.extractAll()
-	}
-
-	// Workdir exists - check if embedded files have changed
-	needsUpdate, err := e.needsUpdate()
-	if err != nil {
-		return fmt.Errorf("failed to check for updates: %w", err)
-	}
-
-	if needsUpdate {
-		// Remove old directory and re-extract
+	if _, err := os.Stat(e.workDir); err == nil {
+		// Workdir exists - remove it completely for fresh extraction
+		log.Printf("Removing existing workdir: %s", e.workDir)
 		if err := os.RemoveAll(e.workDir); err != nil {
-			return fmt.Errorf("failed to remove old workdir: %w", err)
+			return fmt.Errorf("failed to remove existing workdir: %w", err)
 		}
-		return e.extractAll()
+		log.Println("Existing workdir removed successfully")
+	} else if !os.IsNotExist(err) {
+		// Some other error occurred
+		return fmt.Errorf("failed to check workdir: %w", err)
 	}
 
-	// Files are up-to-date, reuse existing directory
-	return nil
+	// Always extract everything fresh
+	log.Println("Extracting fresh workdir...")
+	return e.extractAll()
 }
 
 // extractAll extracts all embedded files to the working directory
 func (e *Extractor) extractAll() error {
+	log.Printf("Creating workdir: %s", e.workDir)
 	if err := os.MkdirAll(e.workDir, 0755); err != nil {
 		return fmt.Errorf("failed to create workdir: %w", err)
 	}
 
+	fileCount := 0
+	dirCount := 0
+
 	// Walk through embedded filesystem
-	// Il path base è "carbonio-base-dockerization" nell'embed
 	err := fs.WalkDir(EmbeddedFiles, "carbonio-base-dockerization", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -85,7 +83,7 @@ func (e *Extractor) extractAll() error {
 			return nil
 		}
 
-		// Rimuovi il prefisso "carbonio-base-dockerization/" dal path
+		// Remove prefix "carbonio-base-dockerization/" from path
 		relPath := strings.TrimPrefix(path, "carbonio-base-dockerization/")
 
 		// Normalize path separators for cross-platform
@@ -93,6 +91,8 @@ func (e *Extractor) extractAll() error {
 		targetPath := filepath.Join(e.workDir, normalizedPath)
 
 		if d.IsDir() {
+			dirCount++
+			log.Printf("Creating directory: %s", relPath)
 			return os.MkdirAll(targetPath, 0755)
 		}
 
@@ -111,6 +111,9 @@ func (e *Extractor) extractAll() error {
 			return fmt.Errorf("failed to write file %s: %w", targetPath, err)
 		}
 
+		fileCount++
+		log.Printf("Extracted file: %s (%d bytes)", relPath, len(data))
+
 		return nil
 	})
 
@@ -118,73 +121,6 @@ func (e *Extractor) extractAll() error {
 		return fmt.Errorf("failed to extract files: %w", err)
 	}
 
-	// Write hash file to track version
-	if err := e.writeHashFile(); err != nil {
-		return fmt.Errorf("failed to write hash file: %w", err)
-	}
-
+	log.Printf("Extraction complete: %d directories, %d files", dirCount, fileCount)
 	return nil
-}
-
-// needsUpdate checks if embedded files have changed since last extraction
-func (e *Extractor) needsUpdate() (bool, error) {
-	hashFile := filepath.Join(e.workDir, ".carbonio-cli-hash")
-
-	// Read existing hash
-	existingHash, err := os.ReadFile(hashFile)
-	if err != nil {
-		// Hash file doesn't exist, needs update
-		return true, nil
-	}
-
-	// Calculate current embedded files hash
-	currentHash, err := e.calculateEmbeddedHash()
-	if err != nil {
-		return false, err
-	}
-
-	return string(existingHash) != currentHash, nil
-}
-
-// calculateEmbeddedHash calculates a hash of all embedded files
-func (e *Extractor) calculateEmbeddedHash() (string, error) {
-	hash := sha256.New()
-
-	err := fs.WalkDir(EmbeddedFiles, "carbonio-base-dockerization", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if d.IsDir() {
-			return nil
-		}
-
-		data, err := EmbeddedFiles.ReadFile(path)
-		if err != nil {
-			return err
-		}
-
-		// Include path and content in hash
-		hash.Write([]byte(path))
-		hash.Write(data)
-
-		return nil
-	})
-
-	if err != nil {
-		return "", err
-	}
-
-	return hex.EncodeToString(hash.Sum(nil)), nil
-}
-
-// writeHashFile writes the current hash to the workdir
-func (e *Extractor) writeHashFile() error {
-	hash, err := e.calculateEmbeddedHash()
-	if err != nil {
-		return err
-	}
-
-	hashFile := filepath.Join(e.workDir, ".carbonio-cli-hash")
-	return os.WriteFile(hashFile, []byte(hash), 0644)
 }

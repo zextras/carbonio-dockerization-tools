@@ -25,21 +25,35 @@ func NewExecutor(workDir string) *Executor {
 }
 
 // CleanupExisting runs docker compose down to clean up any existing containers
+// DEPRECATED: Use CleanupAll instead
 func (e *Executor) CleanupExisting(edition string) error {
-	args := []string{"compose", "-f", "docker-compose.yaml"}
+	return e.CleanupAll()
+}
 
-	if edition == "advanced" {
-		args = append(args, "-f", "docker-compose-advanced.yaml")
+// CleanupAll runs docker compose down for BOTH CE and Advanced
+// to ensure complete cleanup regardless of what's running
+func (e *Executor) CleanupAll() error {
+	log.Println("Running complete cleanup (CE + Advanced)...")
+
+	args := []string{
+		"compose",
+		"-f", "docker-compose.yaml",
+		"-f", "docker-compose-advanced.yaml",
+		"down",
 	}
-
-	args = append(args, "down")
 
 	cmd := exec.Command("docker", args...)
 	cmd.Dir = e.workDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	return cmd.Run()
+	if err := cmd.Run(); err != nil {
+		log.Printf("Cleanup command failed: %v", err)
+		return fmt.Errorf("cleanup failed: %w", err)
+	}
+
+	log.Println("Cleanup completed successfully")
+	return nil
 }
 
 // Execute runs the docker compose command with environment variables
@@ -75,7 +89,8 @@ func (e *Executor) Execute(envVars string, cmdParts []string, outputChan chan st
 
 	go func() {
 		<-sigChan
-		e.Stop()
+		log.Println("Signal received in executor, stopping and cleaning up...")
+		e.StopAndCleanup()
 	}()
 
 	// Stream stdout
@@ -83,17 +98,17 @@ func (e *Executor) Execute(envVars string, cmdParts []string, outputChan chan st
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
 			line := scanner.Text()
-			log.Println(line) // Log al file
+			log.Println(line)
 			outputChan <- line
 		}
 	}()
 
-	// Stream stderr (Docker usa stderr anche per output normale)
+	// Stream stderr
 	go func() {
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
 			line := scanner.Text()
-			log.Println(line) // Log al file
+			log.Println(line)
 			outputChan <- line
 		}
 	}()
@@ -108,9 +123,23 @@ func (e *Executor) Execute(envVars string, cmdParts []string, outputChan chan st
 // Stop stops the running docker compose command
 func (e *Executor) Stop() error {
 	if e.cmd != nil && e.cmd.Process != nil {
+		log.Println("Stopping docker compose process...")
 		return e.cmd.Process.Signal(os.Interrupt)
 	}
 	return nil
+}
+
+// StopAndCleanup stops the running command and does cleanup
+func (e *Executor) StopAndCleanup() error {
+	log.Println("Stopping and cleaning up...")
+
+	// Stop running process
+	if err := e.Stop(); err != nil {
+		log.Printf("Failed to stop process: %v", err)
+	}
+
+	// Do full cleanup
+	return e.CleanupAll()
 }
 
 // parseEnvVars parses space-separated env vars "KEY=value KEY2=value2"
@@ -119,6 +148,5 @@ func parseEnvVars(envString string) []string {
 		return []string{}
 	}
 
-	// Split per spazi - ogni VAR=value diventa un elemento separato
 	return strings.Fields(envString)
 }
