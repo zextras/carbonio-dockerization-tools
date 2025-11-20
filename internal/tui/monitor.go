@@ -12,10 +12,7 @@ import (
 
 var (
 	outputStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#00FF00"))
-
-	errorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FF0000"))
+		Foreground(lipgloss.Color("#FFFFFF")) // Output normale bianco
 )
 
 // MonitorCompletedMsg is sent when docker compose finishes
@@ -142,13 +139,9 @@ func (m *MonitorModel) View() string {
 	s.WriteString(titleStyle.Render("🚀 Starting Carbonio..."))
 	s.WriteString("\n\n")
 
-	// Show output lines
+	// Show output lines - mostra l'output così come arriva da Docker
 	for _, line := range m.outputLines {
-		if strings.Contains(line, "[ERROR]") || strings.Contains(line, "Error") {
-			s.WriteString(errorStyle.Render(line))
-		} else {
-			s.WriteString(outputStyle.Render(line))
-		}
+		s.WriteString(outputStyle.Render(line))
 		s.WriteString("\n")
 	}
 

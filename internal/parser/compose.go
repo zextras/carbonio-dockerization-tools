@@ -66,16 +66,19 @@ func ParseComposeFile(data []byte, edition Edition) (map[string]*ServiceDefiniti
 			def.EnvVar = envVar
 			def.DefaultImage = defaultImg
 			def.DefaultTag = extractTag(defaultImg)
-			log.Printf("Service %s: env=%s, image=%s, tag=%s", name, envVar, defaultImg, def.DefaultTag)
+			def.DisplayName = extractImageName(defaultImg)
+			log.Printf("Service %s: env=%s, image=%s, tag=%s, display=%s", name, envVar, defaultImg, def.DefaultTag, def.DisplayName)
 		} else if svc.Image != "" {
 			// Direct image reference (no env var)
 			def.DefaultImage = svc.Image
 			def.DefaultTag = extractTag(svc.Image)
-			log.Printf("Service %s: direct image=%s, tag=%s", name, svc.Image, def.DefaultTag)
+			def.DisplayName = extractImageName(svc.Image)
+			log.Printf("Service %s: direct image=%s, tag=%s, display=%s", name, svc.Image, def.DefaultTag, def.DisplayName)
 		} else {
 			// Build-only service (like carbonio-docs-editor)
 			def.DefaultTag = "local"
-			log.Printf("Service %s: build-only, tag=local", name)
+			def.DisplayName = name // Per servizi local, usa il nome del servizio
+			log.Printf("Service %s: build-only, tag=local, display=%s", name, def.DisplayName)
 		}
 
 		// Extract dependencies
@@ -133,6 +136,31 @@ func extractTag(imageURL string) string {
 	return "latest"
 }
 
+// extractImageName extracts the image name from full URL
+// e.g., "registry.dev.zextras.com/dev/carbonio-files-ce:devel" -> "carbonio-files-ce"
+func extractImageName(imageURL string) string {
+	if imageURL == "" {
+		return ""
+	}
+
+	// Remove tag first (everything after last :)
+	lastColon := strings.LastIndex(imageURL, ":")
+	lastSlash := strings.LastIndex(imageURL, "/")
+
+	imageWithoutTag := imageURL
+	if lastColon > lastSlash && lastColon != -1 {
+		imageWithoutTag = imageURL[:lastColon]
+	}
+
+	// Get everything after last /
+	parts := strings.Split(imageWithoutTag, "/")
+	if len(parts) > 0 {
+		return parts[len(parts)-1]
+	}
+
+	return imageURL
+}
+
 // extractDependencies handles both array and map syntax for depends_on
 func extractDependencies(dependsOn interface{}) []string {
 	if dependsOn == nil {
@@ -184,12 +212,23 @@ func ParseUIImagesFromCompose(data []byte) (map[string]*UIImageDefinition, error
 	log.Printf("Found carbonio-composed-ui with %d build args", len(composedUI.Build.Args))
 
 	// Processa ogni build arg
-	for envVar, defaultImage := range composedUI.Build.Args {
-		// Pulisci il valore da eventuali caratteri strani (graffe, spazi)
-		defaultImage = strings.TrimSpace(defaultImage)
-		defaultImage = strings.Trim(defaultImage, "{}")
+	for envVar, argValue := range composedUI.Build.Args {
+		log.Printf("Build arg: %s = %s", envVar, argValue)
 
-		log.Printf("Build arg: %s = %s", envVar, defaultImage)
+		// Estrai il valore reale dalla sintassi ${VAR:-default} se presente
+		defaultImage := argValue
+		if strings.Contains(argValue, "${") {
+			// Ha sintassi ${VAR:-default}, estraiamo il default
+			_, extracted := extractEnvVar(argValue)
+			if extracted != "" {
+				defaultImage = extracted
+			}
+		}
+
+		// Pulisci spazi
+		defaultImage = strings.TrimSpace(defaultImage)
+
+		log.Printf("  -> Extracted default image: %s", defaultImage)
 
 		// Process both UI images and PROXY image
 		if strings.HasSuffix(envVar, "_UI_IMAGE") || envVar == "CARBONIO_PROXY_IMAGE" {
@@ -213,7 +252,7 @@ func ParseUIImagesFromCompose(data []byte) (map[string]*UIImageDefinition, error
 
 	log.Printf("Parsed %d UI images from compose build args", len(uiImages))
 	for name, ui := range uiImages {
-		log.Printf("  - %s: tag=%s, proxy=%v", name, ui.DefaultTag, ui.IsProxy)
+		log.Printf("  - %s: tag=%s, proxy=%v, image=%s", name, ui.DefaultTag, ui.IsProxy, ui.DefaultImage)
 	}
 
 	return uiImages, nil

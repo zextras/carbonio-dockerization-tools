@@ -3,6 +3,7 @@ package docker
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -77,18 +78,23 @@ func (e *Executor) Execute(envVars string, cmdParts []string, outputChan chan st
 		e.Stop()
 	}()
 
-	// Stream output
+	// Stream stdout
 	go func() {
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
-			outputChan <- scanner.Text()
+			line := scanner.Text()
+			log.Println(line) // Log al file
+			outputChan <- line
 		}
 	}()
 
+	// Stream stderr (Docker usa stderr anche per output normale)
 	go func() {
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
-			outputChan <- "[ERROR] " + scanner.Text()
+			line := scanner.Text()
+			log.Println(line) // Log al file
+			outputChan <- line
 		}
 	}()
 
@@ -113,6 +119,6 @@ func parseEnvVars(envString string) []string {
 		return []string{}
 	}
 
-	vars := strings.Fields(envString)
-	return vars
+	// Split per spazi - ogni VAR=value diventa un elemento separato
+	return strings.Fields(envString)
 }

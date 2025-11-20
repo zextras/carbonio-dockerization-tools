@@ -3,6 +3,7 @@ package parser
 // ServiceDefinition represents a backend service from docker-compose
 type ServiceDefinition struct {
 	Name          string   // Service name (e.g., "carbonio-mailbox")
+	DisplayName   string   // Display name from image (e.g., "carbonio-files-ce")
 	EnvVar        string   // Environment variable for image (e.g., "CARBONIO_MAILBOX_IMAGE")
 	DefaultImage  string   // Default image URL
 	DefaultTag    string   // Extracted default tag

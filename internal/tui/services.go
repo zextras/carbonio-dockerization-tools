@@ -110,11 +110,23 @@ func NewServicesModel(parsedConfig *parser.ParsedConfig, resolver *graph.Depende
 			continue
 		}
 
+		// NASCONDI carbonio-composed-ui (sarà sempre incluso automaticamente)
+		if name == "carbonio-composed-ui" {
+			log.Printf("Hiding carbonio-composed-ui from UI (always required, always local)")
+			continue
+		}
+
 		// Ora mostriamo anche i servizi con tag "local", ma lockiamo il tag
 		tagLocked := svc.DefaultTag == "local"
 
+		// Usa DisplayName invece di Name per la visualizzazione
+		displayName := svc.DisplayName
+		if displayName == "" {
+			displayName = name // Fallback al nome del servizio
+		}
+
 		item := &ServiceItem{
-			Name:         name,
+			Name:         displayName, // USA IL DISPLAY NAME
 			DefaultTag:   svc.DefaultTag,
 			CustomTag:    "",
 			Selected:     true,
@@ -131,7 +143,7 @@ func NewServicesModel(parsedConfig *parser.ParsedConfig, resolver *graph.Depende
 			optionalBackend = append(optionalBackend, item)
 		}
 
-		log.Printf("Backend item: %s (tag=%s, required=%v, locked=%v)", name, svc.DefaultTag, svc.IsRequired, tagLocked)
+		log.Printf("Backend item: %s (display=%s, tag=%s, required=%v, locked=%v)", name, displayName, svc.DefaultTag, svc.IsRequired, tagLocked)
 	}
 
 	// Combina: required prima, poi optional
@@ -512,16 +524,30 @@ func (m *ServicesModel) confirm() (tea.Model, tea.Cmd) {
 	// Backend: include servizi selezionati + registrator
 	for _, item := range m.backendItems {
 		if item.Selected {
+			// Trova il servizio reale dal DisplayName
+			var realServiceName string
+			for name, svc := range m.parsedConfig.BackendServices {
+				if svc.DisplayName == item.Name || name == item.Name {
+					realServiceName = name
+					break
+				}
+			}
+
+			if realServiceName == "" {
+				log.Printf("Warning: could not find real service name for display name %s", item.Name)
+				continue
+			}
+
 			tag := item.DefaultTag
 			if item.CustomTag != "" && !item.TagLocked {
 				tag = item.CustomTag
 			}
-			backend[item.Name] = tag
-			log.Printf("  Backend: %s -> %s", item.Name, tag)
+			backend[realServiceName] = tag
+			log.Printf("  Backend: %s -> %s", realServiceName, tag)
 
 			// Auto-includi il registrator se esiste
 			registratorName := ""
-			baseName := item.Name
+			baseName := realServiceName
 			if strings.HasPrefix(baseName, "carbonio-") {
 				baseName = baseName[9:]
 			}
@@ -532,6 +558,12 @@ func (m *ServicesModel) confirm() (tea.Model, tea.Cmd) {
 				log.Printf("  Auto-added registrator: %s -> %s", registratorName, regSvc.DefaultTag)
 			}
 		}
+	}
+
+	// SEMPRE includi carbonio-composed-ui
+	if composedUI, exists := m.parsedConfig.BackendServices["carbonio-composed-ui"]; exists {
+		backend["carbonio-composed-ui"] = composedUI.DefaultTag
+		log.Printf("  Auto-added carbonio-composed-ui: local")
 	}
 
 	log.Printf("Building frontend selection from %d visible items", len(m.frontendItems))

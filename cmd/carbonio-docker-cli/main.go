@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"log"
+	"net"
 	"os"
+	"time"
 
 	"carbonio-docker-cli/internal/embedded"
 	"carbonio-docker-cli/internal/tui"
@@ -14,6 +16,8 @@ var (
 	commit  = "none"
 	date    = "unknown"
 )
+
+const registryHost = "registry.dev.zextras.com:443"
 
 func main() {
 	// Parse flags
@@ -49,6 +53,17 @@ func main() {
 	log.Println("=== Starting Carbonio Docker CLI ===")
 	log.Printf("Version: %s, Commit: %s, Date: %s", version, commit, date)
 	log.Printf("Config file: %s", configFile)
+
+	// Check registry connectivity
+	fmt.Println("🔍 Checking registry connectivity...")
+	if err := checkRegistryConnectivity(); err != nil {
+		fmt.Printf("\n❌ Error: Registry unavailable (%s)\n", registryHost)
+		fmt.Println("   Please check your VPN connection and try again.")
+		log.Printf("Registry check failed: %v", err)
+		os.Exit(1)
+	}
+	fmt.Println("✓ Registry is reachable\n")
+	log.Println("Registry connectivity check passed")
 
 	// Extract embedded files
 	fmt.Println("🔧 Preparing Carbonio environment...")
@@ -86,4 +101,17 @@ func printHelp() {
 	fmt.Println("  --help, -h          Show this help message")
 	fmt.Println()
 	fmt.Println("Logs are always saved to: carbonio-docker-cli.log")
+}
+
+// checkRegistryConnectivity verifies if the Docker registry is reachable
+func checkRegistryConnectivity() error {
+	timeout := 5 * time.Second
+
+	conn, err := net.DialTimeout("tcp", registryHost, timeout)
+	if err != nil {
+		return fmt.Errorf("connection failed: %w", err)
+	}
+	defer conn.Close()
+
+	return nil
 }
