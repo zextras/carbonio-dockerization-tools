@@ -30,3 +30,24 @@ go.work.sum
 # Editor/IDE
 .idea/
 .vscode/
+
+/carbonio-docker-cli
+/carbonio-docker-cli.exe
+/carbonio-docker-cli-*
+
+carbonio-docker-workdir/
+
+carbonio-config.yaml
+carbonio-config-*.yaml
+
+carbonio-docker-cli.log
+*.log
+
+coverage.html
+
+vendor/
+
+*.swp
+*.swo
+*~
+.DS_Store

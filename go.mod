@@ -1,4 +1,4 @@
-module github.com/zextras/carbonio-base-dockerization
+module carbonio-docker-cli
 
 go 1.21
 
