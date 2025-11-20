@@ -1,0 +1,7 @@
+# This docker compose will be applied over the default one, so every service with the same name as the original will be overwritten.
+services:
+  carbonio-files-ce:
+    image: carbonio-files-ce:fresh-locally-built-organic-km-0-image
+    build:
+      context: whereevercontextmaybe/
+      dockerfile: Dockerfile
