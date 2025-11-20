@@ -1,13 +1,13 @@
 package tui
 
 import (
-	config2 "carbonio-docker-cli/internal/config"
-	docker2 "carbonio-docker-cli/internal/docker"
-	"carbonio-docker-cli/internal/graph"
-	parser2 "carbonio-docker-cli/internal/parser"
 	"fmt"
 	"log"
 
+	"carbonio-docker-cli/internal/config"
+	"carbonio-docker-cli/internal/docker"
+	"carbonio-docker-cli/internal/graph"
+	"carbonio-docker-cli/internal/parser"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -34,10 +34,10 @@ type App struct {
 	monitorModel  *MonitorModel
 
 	// Shared data
-	parsedConfig *parser2.ParsedConfig
-	userConfig   *config2.UserConfig
-	edition      parser2.Edition
-	executor     *docker2.Executor
+	parsedConfig *parser.ParsedConfig
+	userConfig   *config.UserConfig
+	edition      parser.Edition
+	executor     *docker.Executor
 }
 
 // NewApp creates a new application instance
@@ -46,7 +46,7 @@ func NewApp(workDir, configFile string) *App {
 		workDir:       workDir,
 		configFile:    configFile,
 		currentScreen: ScreenStartup,
-		executor:      docker2.NewExecutor(workDir),
+		executor:      docker.NewExecutor(workDir),
 	}
 }
 
@@ -77,26 +77,28 @@ func (a *App) Run() error {
 
 // runWithConfig loads config and starts directly
 func (a *App) runWithConfig() error {
+	log.Println("=== Running with config file ===")
+
 	// Parse docker files first
-	parsedConfig, err := parser2.ParseAll(a.workDir, parser2.EditionCE)
+	parsedConfig, err := parser.ParseAll(a.workDir, parser.EditionCE)
 	if err != nil {
 		return fmt.Errorf("failed to parse docker files: %w", err)
 	}
 
 	// Load user config
-	userConfig, err := config2.LoadConfig(a.configFile, parsedConfig)
+	userConfig, err := config.LoadConfig(a.configFile, parsedConfig)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
 	// Set edition
-	edition := parser2.EditionCE
+	edition := parser.EditionCE
 	if userConfig.Carbonio.Edition == "advanced" {
-		edition = parser2.EditionAdvanced
+		edition = parser.EditionAdvanced
 	}
 
 	// Re-parse with correct edition
-	parsedConfig, err = parser2.ParseAll(a.workDir, edition)
+	parsedConfig, err = parser.ParseAll(a.workDir, edition)
 	if err != nil {
 		return fmt.Errorf("failed to parse docker files: %w", err)
 	}
@@ -111,16 +113,20 @@ func (a *App) runWithConfig() error {
 
 // executeFromConfig executes docker compose from loaded config
 func (a *App) executeFromConfig() error {
-	builder := docker2.NewCommandBuilder(a.workDir, a.edition, a.parsedConfig)
+	log.Println("=== Executing from config ===")
+
+	builder := docker.NewCommandBuilder(a.workDir, a.edition, a.parsedConfig)
 
 	// Set backend services
 	for serviceName, tag := range a.userConfig.Carbonio.Backend {
 		builder.SetBackendService(serviceName, tag)
+		log.Printf("Backend: %s -> %s", serviceName, tag)
 	}
 
 	// Set frontend images
 	for uiName, tag := range a.userConfig.Carbonio.Frontend {
 		builder.SetFrontendImage(uiName, tag)
+		log.Printf("Frontend: %s -> %s", uiName, tag)
 	}
 
 	// Build command
@@ -249,12 +255,19 @@ func (a *App) handleImportConfig() (tea.Model, tea.Cmd) {
 }
 
 func (a *App) handleEditionChoice() (tea.Model, tea.Cmd) {
+	log.Printf("=== Edition choice: %s ===", a.edition)
+
 	// Parse docker files with selected edition
-	parsedConfig, err := parser2.ParseAll(a.workDir, a.edition)
+	log.Println("Parsing docker files...")
+	parsedConfig, err := parser.ParseAll(a.workDir, a.edition)
 	if err != nil {
-		log.Printf("Failed to parse docker files: %v", err)
+		log.Printf("ERROR: Failed to parse docker files: %v", err)
 		return a, tea.Quit
 	}
+
+	log.Printf("Parsed successfully: %d backend, %d frontend",
+		len(parsedConfig.BackendServices),
+		len(parsedConfig.FrontendImages))
 
 	a.parsedConfig = parsedConfig
 	a.currentScreen = ScreenServices
@@ -262,34 +275,50 @@ func (a *App) handleEditionChoice() (tea.Model, tea.Cmd) {
 	// Create dependency resolver
 	resolver := graph.NewDependencyResolver(parsedConfig.BackendServices)
 
+	log.Println("Creating services model...")
 	a.servicesModel = NewServicesModel(parsedConfig, resolver, a.edition)
+
 	return a, nil
 }
 
 func (a *App) handleServicesConfirmed(msg ServicesConfirmedMsg) (tea.Model, tea.Cmd) {
+	log.Println("=== Services confirmed ===")
+	log.Printf("Backend services: %d", len(msg.Backend))
+	log.Printf("Frontend images: %d", len(msg.Frontend))
+
 	// Build docker compose command
-	builder := docker2.NewCommandBuilder(a.workDir, a.edition, a.parsedConfig)
+	builder := docker.NewCommandBuilder(a.workDir, a.edition, a.parsedConfig)
 
 	// Set backend services
+	log.Println("Setting backend services...")
 	for serviceName, tag := range msg.Backend {
 		builder.SetBackendService(serviceName, tag)
+		log.Printf("  - %s: %s", serviceName, tag)
 	}
 
 	// Set frontend images
+	log.Println("Setting frontend images...")
 	for uiName, tag := range msg.Frontend {
 		builder.SetFrontendImage(uiName, tag)
+		log.Printf("  - %s: %s", uiName, tag)
 	}
 
 	// Build command
+	log.Println("Building docker command...")
 	envVars, cmdParts, err := builder.Build()
 	if err != nil {
-		log.Printf("Failed to build command: %v", err)
+		log.Printf("ERROR: Failed to build command: %v", err)
 		return a, tea.Quit
 	}
+
+	log.Printf("Command built successfully")
+	log.Printf("Env vars: %s", envVars)
+	log.Printf("Cmd parts: %v", cmdParts)
 
 	// Switch to monitor screen
 	a.currentScreen = ScreenMonitor
 	a.monitorModel = NewMonitorModel(a.executor, envVars, cmdParts)
 
+	log.Println("Switching to monitor screen")
 	return a, a.monitorModel.Start()
 }

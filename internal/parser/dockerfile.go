@@ -4,15 +4,21 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"log"
 	"strings"
 )
 
 // ParseDockerfileUIArgs parses Dockerfile to extract UI image ARGs
+// This is a fallback method if build args are not in docker-compose
 func ParseDockerfileUIArgs(data []byte) (map[string]*UIImageDefinition, error) {
+	log.Printf("Parsing Dockerfile (%d bytes)", len(data))
+
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	uiImages := make(map[string]*UIImageDefinition)
+	lineNum := 0
 
 	for scanner.Scan() {
+		lineNum++
 		line := strings.TrimSpace(scanner.Text())
 
 		// Look for ARG lines like: ARG CARBONIO_SHELL_UI_IMAGE=registry...
@@ -26,19 +32,24 @@ func ParseDockerfileUIArgs(data []byte) (map[string]*UIImageDefinition, error) {
 		// Split on = to get var name and default value
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) != 2 {
-			continue // ARG without default, skip
+			log.Printf("Line %d: ARG without default value, skipping: %s", lineNum, line)
+			continue
 		}
 
 		envVar := strings.TrimSpace(parts[0])
 		defaultImage := strings.TrimSpace(parts[1])
 
+		log.Printf("Line %d: Found ARG %s=%s", lineNum, envVar, defaultImage)
+
 		// Process both UI images and PROXY image
 		if strings.HasSuffix(envVar, "_UI_IMAGE") || envVar == "CARBONIO_PROXY_IMAGE" {
-			// Extract friendly name from env var
+			// Extract friendly name from env var (function is in compose.go)
 			friendlyName := extractUIName(envVar)
 
 			// Check if it's the proxy
 			isProxy := envVar == "CARBONIO_PROXY_IMAGE"
+
+			log.Printf("  -> UI: %s (proxy=%v)", friendlyName, isProxy)
 
 			uiImages[friendlyName] = &UIImageDefinition{
 				Name:         friendlyName,
@@ -47,6 +58,8 @@ func ParseDockerfileUIArgs(data []byte) (map[string]*UIImageDefinition, error) {
 				DefaultTag:   extractTag(defaultImage),
 				IsProxy:      isProxy,
 			}
+		} else {
+			log.Printf("  -> Skipped (not a UI image)")
 		}
 	}
 
@@ -54,16 +67,10 @@ func ParseDockerfileUIArgs(data []byte) (map[string]*UIImageDefinition, error) {
 		return nil, fmt.Errorf("error reading Dockerfile: %w", err)
 	}
 
-	return uiImages, nil
-}
+	log.Printf("Parsed %d UI images from Dockerfile", len(uiImages))
+	for name, ui := range uiImages {
+		log.Printf("  - %s: tag=%s, proxy=%v", name, ui.DefaultTag, ui.IsProxy)
+	}
 
-// extractUIName converts CARBONIO_SHELL_UI_IMAGE to carbonio-shell-ui
-// or CARBONIO_PROXY_IMAGE to carbonio-proxy
-func extractUIName(envVar string) string {
-	// Remove _IMAGE suffix
-	name := strings.TrimSuffix(envVar, "_IMAGE")
-	// Convert to lowercase and replace _ with -
-	name = strings.ToLower(name)
-	name = strings.ReplaceAll(name, "_", "-")
-	return name
+	return uiImages, nil
 }

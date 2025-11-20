@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"log"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -34,23 +35,29 @@ func ParseComposeFile(data []byte, edition Edition) (map[string]*ServiceDefiniti
 		return nil, fmt.Errorf("failed to parse compose file: %w", err)
 	}
 
+	log.Printf("Parsing compose for edition %s, found %d services", edition, len(compose.Services))
+
 	services := make(map[string]*ServiceDefinition)
 
 	for name, svc := range compose.Services {
 		// Skip services with restart: "no" (provisioner, etc.)
 		if svc.Restart == "no" {
+			log.Printf("Skipping service %s (restart: no)", name)
 			continue
 		}
 
 		// Skip if no image and no build (shouldn't happen but be safe)
 		if svc.Image == "" && svc.Build == nil {
+			log.Printf("Skipping service %s (no image or build)", name)
 			continue
 		}
 
 		def := &ServiceDefinition{
-			Name:       name,
-			Available:  []string{string(edition)},
-			IsRequired: IsServiceRequired(name), // Marca se obbligatorio
+			Name:          name,
+			Available:     []string{string(edition)},
+			IsRequired:    IsServiceRequired(name),
+			IsRegistrator: IsRegistrator(name),
+			ParentService: GetParentService(name),
 		}
 
 		// Extract ENV var and default image from ${ENV:-default} or ${ENV-default} syntax
@@ -59,10 +66,16 @@ func ParseComposeFile(data []byte, edition Edition) (map[string]*ServiceDefiniti
 			def.EnvVar = envVar
 			def.DefaultImage = defaultImg
 			def.DefaultTag = extractTag(defaultImg)
+			log.Printf("Service %s: env=%s, image=%s, tag=%s", name, envVar, defaultImg, def.DefaultTag)
 		} else if svc.Image != "" {
 			// Direct image reference (no env var)
 			def.DefaultImage = svc.Image
 			def.DefaultTag = extractTag(svc.Image)
+			log.Printf("Service %s: direct image=%s, tag=%s", name, svc.Image, def.DefaultTag)
+		} else {
+			// Build-only service (like carbonio-docs-editor)
+			def.DefaultTag = "local"
+			log.Printf("Service %s: build-only, tag=local", name)
 		}
 
 		// Extract dependencies
@@ -70,6 +83,8 @@ func ParseComposeFile(data []byte, edition Edition) (map[string]*ServiceDefiniti
 
 		services[name] = def
 	}
+
+	log.Printf("Parsed %d services from compose", len(services))
 
 	return services, nil
 }
@@ -109,9 +124,12 @@ func extractTag(imageURL string) string {
 	lastColon := strings.LastIndex(imageURL, ":")
 
 	if lastColon > lastSlash && lastColon != -1 {
-		return imageURL[lastColon+1:]
+		tag := imageURL[lastColon+1:]
+		log.Printf("Extracted tag '%s' from image '%s'", tag, imageURL)
+		return tag
 	}
 
+	log.Printf("No tag found in image '%s', defaulting to 'latest'", imageURL)
 	return "latest"
 }
 
@@ -143,4 +161,71 @@ func extractDependencies(dependsOn interface{}) []string {
 	default:
 		return []string{}
 	}
+}
+
+// ParseUIImagesFromCompose parses UI images from docker-compose build args
+func ParseUIImagesFromCompose(data []byte) (map[string]*UIImageDefinition, error) {
+	log.Println("Parsing UI images from compose build args...")
+
+	var compose ComposeFile
+	if err := yaml.Unmarshal(data, &compose); err != nil {
+		return nil, fmt.Errorf("failed to parse compose file: %w", err)
+	}
+
+	uiImages := make(map[string]*UIImageDefinition)
+
+	// Cerca il servizio carbonio-composed-ui
+	composedUI, exists := compose.Services["carbonio-composed-ui"]
+	if !exists || composedUI.Build == nil || composedUI.Build.Args == nil {
+		log.Println("No build args found in carbonio-composed-ui")
+		return uiImages, nil
+	}
+
+	log.Printf("Found carbonio-composed-ui with %d build args", len(composedUI.Build.Args))
+
+	// Processa ogni build arg
+	for envVar, defaultImage := range composedUI.Build.Args {
+		// Pulisci il valore da eventuali caratteri strani (graffe, spazi)
+		defaultImage = strings.TrimSpace(defaultImage)
+		defaultImage = strings.Trim(defaultImage, "{}")
+
+		log.Printf("Build arg: %s = %s", envVar, defaultImage)
+
+		// Process both UI images and PROXY image
+		if strings.HasSuffix(envVar, "_UI_IMAGE") || envVar == "CARBONIO_PROXY_IMAGE" {
+			// Extract friendly name from env var
+			friendlyName := extractUIName(envVar)
+
+			// Check if it's the proxy
+			isProxy := envVar == "CARBONIO_PROXY_IMAGE"
+
+			log.Printf("  -> UI: %s (proxy=%v)", friendlyName, isProxy)
+
+			uiImages[friendlyName] = &UIImageDefinition{
+				Name:         friendlyName,
+				EnvVar:       envVar,
+				DefaultImage: defaultImage,
+				DefaultTag:   extractTag(defaultImage),
+				IsProxy:      isProxy,
+			}
+		}
+	}
+
+	log.Printf("Parsed %d UI images from compose build args", len(uiImages))
+	for name, ui := range uiImages {
+		log.Printf("  - %s: tag=%s, proxy=%v", name, ui.DefaultTag, ui.IsProxy)
+	}
+
+	return uiImages, nil
+}
+
+// extractUIName converts CARBONIO_SHELL_UI_IMAGE to carbonio-shell-ui
+// or CARBONIO_PROXY_IMAGE to carbonio-proxy
+func extractUIName(envVar string) string {
+	// Remove _IMAGE suffix
+	name := strings.TrimSuffix(envVar, "_IMAGE")
+	// Convert to lowercase and replace _ with -
+	name = strings.ToLower(name)
+	name = strings.ReplaceAll(name, "_", "-")
+	return name
 }

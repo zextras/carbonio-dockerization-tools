@@ -2,13 +2,15 @@ package parser
 
 // ServiceDefinition represents a backend service from docker-compose
 type ServiceDefinition struct {
-	Name         string   // Service name (e.g., "carbonio-mailbox")
-	EnvVar       string   // Environment variable for image (e.g., "CARBONIO_MAILBOX_IMAGE")
-	DefaultImage string   // Default image URL
-	DefaultTag   string   // Extracted default tag
-	DependsOn    []string // List of service dependencies
-	Available    []string // Available in editions: ["ce", "advanced"]
-	IsRequired   bool     // True if this is a required service (mailbox + deps)
+	Name          string   // Service name (e.g., "carbonio-mailbox")
+	EnvVar        string   // Environment variable for image (e.g., "CARBONIO_MAILBOX_IMAGE")
+	DefaultImage  string   // Default image URL
+	DefaultTag    string   // Extracted default tag
+	DependsOn     []string // List of service dependencies
+	Available     []string // Available in editions: ["ce", "advanced"]
+	IsRequired    bool     // True if this is a required service (mailbox + deps)
+	IsRegistrator bool     // True if this is a registrator service
+	ParentService string   // For registrators: the service they register
 }
 
 // UIImageDefinition represents a frontend UI image from Dockerfile args
@@ -42,7 +44,10 @@ var RequiredServices = []string{
 	"carbonio-postfix",
 	"carbonio-mariadb",
 	"consul",
+	"consul-register",
 	"carbonio-composed-ui", // Il proxy è sempre necessario
+	"traefik",
+	"memcached",
 }
 
 // IsServiceRequired controlla se un servizio è obbligatorio
@@ -53,4 +58,27 @@ func IsServiceRequired(serviceName string) bool {
 		}
 	}
 	return false
+}
+
+// IsRegistrator controlla se un servizio è un registrator
+func IsRegistrator(serviceName string) bool {
+	return len(serviceName) > 11 && serviceName[len(serviceName)-11:] == "-registrator"
+}
+
+// GetParentService estrae il nome del servizio parent da un registrator
+// Es: "files-registrator" -> "carbonio-files"
+func GetParentService(registratorName string) string {
+	if !IsRegistrator(registratorName) {
+		return ""
+	}
+
+	// Rimuovi "-registrator" dalla fine
+	baseName := registratorName[:len(registratorName)-12]
+
+	// Aggiungi "carbonio-" se non c'è già
+	if len(baseName) < 9 || baseName[:9] != "carbonio-" {
+		return "carbonio-" + baseName
+	}
+
+	return baseName
 }
