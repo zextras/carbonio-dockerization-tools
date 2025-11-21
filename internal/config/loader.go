@@ -64,7 +64,7 @@ func LoadConfig(filePath string, parsedConfig *parser.ParsedConfig) (*UserConfig
 	}
 
 	// 5. Verifica che i servizi required siano presenti e non disabilitati
-	for _, serviceName := range parser.RequiredServices {
+	for _, serviceName := range parser.GlobalDockerConfig.RequiredServices {
 		// Controlla se il servizio esiste nel parsed config (potrebbe non essere in tutti gli edition)
 		if _, exists := parsedConfig.BackendServices[serviceName]; exists {
 			if _, configured := config.Carbonio.Backend[serviceName]; !configured {

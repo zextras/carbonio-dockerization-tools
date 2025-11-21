@@ -124,19 +124,12 @@ func NewServicesModel(parsedConfig *parser.ParsedConfig, resolver *graph.Depende
 	for _, name := range backendNames {
 		svc := parsedConfig.BackendServices[name]
 
-		// NASCONDI i registrator dalla UI
-		if svc.IsRegistrator {
-			log.Printf("Hiding registrator from UI: %s", name)
+		// NASCONDI servizi secondo config (registrator + auto-included)
+		if parser.GlobalDockerConfig.IsServiceHidden(name) {
+			log.Printf("Hiding service from UI: %s", name)
 			continue
 		}
 
-		// NASCONDI carbonio-composed-ui
-		if name == "carbonio-composed-ui" {
-			log.Printf("Hiding carbonio-composed-ui from UI")
-			continue
-		}
-
-		tagLocked := svc.DefaultTag == "local"
 		imageBase := extractImageBase(svc.DefaultImage)
 
 		// FALLBACK: se non c'è immagine, usa il nome del servizio
@@ -144,6 +137,9 @@ func NewServicesModel(parsedConfig *parser.ParsedConfig, resolver *graph.Depende
 			imageBase = name
 			log.Printf("Backend service %s has no image, using service name as fallback", name)
 		}
+
+		// Controlla se il tag è bloccato
+		tagLocked := parser.GlobalDockerConfig.IsTagLocked(name, svc.DefaultTag, true)
 
 		item := &ServiceItem{
 			ServiceName:  name,
@@ -187,8 +183,10 @@ func NewServicesModel(parsedConfig *parser.ParsedConfig, resolver *graph.Depende
 	for _, name := range frontendNames {
 		ui := parsedConfig.FrontendImages[name]
 
-		tagLocked := ui.DefaultTag == "local"
 		imageBase := extractImageBase(ui.DefaultImage)
+
+		// Controlla se il tag è bloccato
+		tagLocked := parser.GlobalDockerConfig.IsTagLocked(name, ui.DefaultTag, false)
 
 		item := &ServiceItem{
 			ServiceName: name,
@@ -367,13 +365,14 @@ func (m *ServicesModel) renderItem(index int, item *ServiceItem, maxNameLen int)
 	// Build full image display: "image-base:tag"
 	fullImageDisplay := fmt.Sprintf("%s:%s", item.ImageBase, tag)
 
+	// Calculate padding for alignment
+	// Allinea tutti i nomi alla stessa posizione basandosi sul nome più lungo
 	padding := maxNameLen - len(item.ServiceName) + 2 // 2 spazi minimi
 
-	// Aggiungi tab extra: 1 per services, 2 per UI
 	if item.IsBackend {
-		padding += 10 // 1 tab extra per services
+		padding += 10 // 10 tab extra per services
 	} else {
-		padding += 15 // 2 tab extra per UI
+		padding += 15 // 15 tab extra per UI
 	}
 
 	paddingStr := strings.Repeat(" ", padding)
@@ -507,7 +506,8 @@ func (m *ServicesModel) confirm() (tea.Model, tea.Cmd) {
 			backend[item.ServiceName] = tag
 			log.Printf("  Backend: %s -> %s", item.ServiceName, tag)
 
-			registrators := parser.GetRegistratorsForService(item.ServiceName)
+			// Auto-aggiungi registrator usando GlobalDockerConfig
+			registrators := parser.GlobalDockerConfig.GetRegistratorsForService(item.ServiceName)
 			for _, regName := range registrators {
 				if regSvc, exists := m.parsedConfig.BackendServices[regName]; exists {
 					backend[regName] = regSvc.DefaultTag
@@ -518,9 +518,12 @@ func (m *ServicesModel) confirm() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	if composedUI, exists := m.parsedConfig.BackendServices["carbonio-composed-ui"]; exists {
-		backend["carbonio-composed-ui"] = composedUI.DefaultTag
-		log.Printf("  Auto-added carbonio-composed-ui: local")
+	// Auto-includi servizi da AutoIncludedServices
+	for _, autoIncludedName := range parser.GlobalDockerConfig.AutoIncludedServices {
+		if autoIncludedSvc, exists := m.parsedConfig.BackendServices[autoIncludedName]; exists {
+			backend[autoIncludedName] = autoIncludedSvc.DefaultTag
+			log.Printf("  Auto-added service: %s -> %s", autoIncludedName, autoIncludedSvc.DefaultTag)
+		}
 	}
 
 	log.Printf("Building frontend selection from %d visible items", len(m.frontendItems))
@@ -562,7 +565,8 @@ func (m *ServicesModel) exportConfig() (tea.Model, tea.Cmd) {
 			}
 			backend[item.ServiceName] = tag
 
-			registrators := parser.GetRegistratorsForService(item.ServiceName)
+			// Auto-aggiungi registrator usando GlobalDockerConfig
+			registrators := parser.GlobalDockerConfig.GetRegistratorsForService(item.ServiceName)
 			for _, regName := range registrators {
 				if regSvc, exists := m.parsedConfig.BackendServices[regName]; exists {
 					backend[regName] = regSvc.DefaultTag
@@ -571,8 +575,11 @@ func (m *ServicesModel) exportConfig() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	if composedUI, exists := m.parsedConfig.BackendServices["carbonio-composed-ui"]; exists {
-		backend["carbonio-composed-ui"] = composedUI.DefaultTag
+	// Auto-includi servizi da AutoIncludedServices
+	for _, autoIncludedName := range parser.GlobalDockerConfig.AutoIncludedServices {
+		if autoIncludedSvc, exists := m.parsedConfig.BackendServices[autoIncludedName]; exists {
+			backend[autoIncludedName] = autoIncludedSvc.DefaultTag
+		}
 	}
 
 	for _, item := range m.frontendItems {
