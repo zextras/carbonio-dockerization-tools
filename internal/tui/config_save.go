@@ -3,31 +3,26 @@ package tui
 import (
 	"carbonio-docker-cli/internal/parser"
 	"fmt"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"os"
 	"path/filepath"
 	"strings"
-
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
 var (
 	errorStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FF0000")).
 			Bold(true)
-
 	successStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#00FF00")).
 			Bold(true)
 )
 
-// ConfigSaveChoiceMsg is sent when user decides about saving config
 type ConfigSaveChoiceMsg struct {
 	WantsSave bool
 	Filename  string
 }
-
-// ConfigSaveState represents the state of the config save screen
 type ConfigSaveState int
 
 const (
@@ -36,20 +31,16 @@ const (
 	StateError
 )
 
-// ConfigSaveModel represents the config save screen
 type ConfigSaveModel struct {
-	edition parser.Edition
-	state   ConfigSaveState
-	cursor  int
-	choices []string
-
-	// Input state
+	edition      parser.Edition
+	state        ConfigSaveState
+	cursor       int
+	choices      []string
 	filename     string
 	buffer       string
 	errorMessage string
 }
 
-// NewConfigSaveModel creates a new config save model
 func NewConfigSaveModel(edition parser.Edition) *ConfigSaveModel {
 	return &ConfigSaveModel{
 		edition:  edition,
@@ -60,11 +51,9 @@ func NewConfigSaveModel(edition parser.Edition) *ConfigSaveModel {
 		buffer:   "carbonio-config.yaml",
 	}
 }
-
 func (m *ConfigSaveModel) Init() tea.Cmd {
 	return nil
 }
-
 func (m *ConfigSaveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m.state {
 	case StateAsk:
@@ -74,33 +63,26 @@ func (m *ConfigSaveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case StateError:
 		return m.updateError(msg)
 	}
-
 	return m, nil
 }
-
 func (m *ConfigSaveModel) updateAsk(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
-
 		case "left", "h":
 			if m.cursor > 0 {
 				m.cursor--
 			}
-
 		case "right", "l":
 			if m.cursor < len(m.choices)-1 {
 				m.cursor++
 			}
-
 		case "enter":
 			if m.cursor == 0 {
-				// Yes - go to input state
 				m.state = StateInput
 			} else {
-				// No - skip saving
 				return m, func() tea.Msg {
 					return ConfigSaveChoiceMsg{
 						WantsSave: false,
@@ -110,33 +92,25 @@ func (m *ConfigSaveModel) updateAsk(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
-
 	return m, nil
 }
-
 func (m *ConfigSaveModel) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
-
 		case "esc":
-			// Go back to ask
 			m.state = StateAsk
 			m.buffer = m.filename
 			m.errorMessage = ""
-
 		case "enter":
-			// Validate and save
 			filename := strings.TrimSpace(m.buffer)
 			if filename == "" {
 				m.errorMessage = "Filename cannot be empty"
 				m.state = StateError
 				return m, nil
 			}
-
-			// Get binary directory
 			exePath, err := os.Executable()
 			if err != nil {
 				m.errorMessage = fmt.Sprintf("Failed to get binary path: %v", err)
@@ -145,65 +119,49 @@ func (m *ConfigSaveModel) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			binaryDir := filepath.Dir(exePath)
 			fullPath := filepath.Join(binaryDir, filename)
-
-			// Check if file exists
 			if _, err := os.Stat(fullPath); err == nil {
 				m.errorMessage = fmt.Sprintf("File '%s' already exists. Please choose another name.", filename)
 				m.state = StateError
 				return m, nil
 			}
-
-			// File doesn't exist, proceed with save
 			return m, func() tea.Msg {
 				return ConfigSaveChoiceMsg{
 					WantsSave: true,
 					Filename:  fullPath,
 				}
 			}
-
 		case "backspace":
 			if len(m.buffer) > 0 {
 				m.buffer = m.buffer[:len(m.buffer)-1]
 			}
-
 		default:
-			// Add character to buffer
 			if len(msg.String()) == 1 {
 				m.buffer += msg.String()
 			}
 		}
 	}
-
 	return m, nil
 }
-
 func (m *ConfigSaveModel) updateError(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
-
 		case "enter", "esc":
-			// Go back to input
 			m.state = StateInput
 			m.errorMessage = ""
 		}
 	}
-
 	return m, nil
 }
-
 func (m *ConfigSaveModel) View() string {
 	var s strings.Builder
-
 	s.WriteString(titleStyle.Render("💾 Save Configuration"))
 	s.WriteString("\n\n")
-
 	switch m.state {
 	case StateAsk:
 		s.WriteString("Do you want to save this configuration to a file?\n\n")
-
 		for i, choice := range m.choices {
 			cursor := " "
 			if m.cursor == i {
@@ -214,24 +172,19 @@ func (m *ConfigSaveModel) View() string {
 			}
 			s.WriteString("  ")
 		}
-
 		s.WriteString("\n\n")
 		s.WriteString(helpStyle.Render("←/→: select • enter: confirm • q: quit"))
-
 	case StateInput:
 		s.WriteString("Enter filename for configuration:\n\n")
 		s.WriteString("Filename: ")
 		s.WriteString(inputStyle.Render(m.buffer))
-		s.WriteString("█") // Cursor
-
+		s.WriteString("█")
 		s.WriteString("\n\n")
 		s.WriteString(helpStyle.Render("type to edit • enter: save • esc: cancel"))
-
 	case StateError:
 		s.WriteString(errorStyle.Render("❌ " + m.errorMessage))
 		s.WriteString("\n\n")
 		s.WriteString(helpStyle.Render("press enter to try again"))
 	}
-
 	return s.String()
 }
