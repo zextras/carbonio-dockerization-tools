@@ -2,10 +2,13 @@ package tui
 
 import (
 	"carbonio-docker-cli/internal/docker"
+	"encoding/json"
 	"fmt"
 	"log"
+	"os/exec"
 	"sort"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -75,11 +78,17 @@ type OutputLineMsg struct {
 	Line string
 }
 
+// DockerStateMsg contains the updated state from docker ps
+type DockerStateMsg struct {
+	States map[string]ServiceState
+}
+
 // MonitorModel represents the live output monitor screen
 type MonitorModel struct {
 	executor *docker.Executor
 	envVars  string
 	cmdParts []string
+	workDir  string
 
 	outputChan       chan string
 	outputLines      []string
@@ -96,8 +105,17 @@ type MonitorModel struct {
 	viewHeight int
 }
 
+// DockerComposeStatus represents a service status from docker compose ps
+type DockerComposeStatus struct {
+	Name    string `json:"Name"`
+	State   string `json:"State"`
+	Status  string `json:"Status"`
+	Health  string `json:"Health"`
+	Service string `json:"Service"`
+}
+
 // NewMonitorModel creates a new monitor model
-func NewMonitorModel(executor *docker.Executor, envVars string, cmdParts []string, selectedServices []string) *MonitorModel {
+func NewMonitorModel(executor *docker.Executor, envVars string, cmdParts []string, selectedServices []string, workDir string) *MonitorModel {
 	// Initialize service states
 	states := make(map[string]ServiceState)
 	for _, svc := range selectedServices {
@@ -108,6 +126,7 @@ func NewMonitorModel(executor *docker.Executor, envVars string, cmdParts []strin
 		executor:         executor,
 		envVars:          envVars,
 		cmdParts:         cmdParts,
+		workDir:          workDir,
 		outputChan:       make(chan string, 100),
 		outputLines:      []string{},
 		maxLines:         30,
@@ -141,7 +160,10 @@ func (m *MonitorModel) Start() tea.Cmd {
 	}()
 
 	// Start reading from output channel
-	return m.waitForOutput()
+	return tea.Batch(
+		m.waitForOutput(),
+		m.pollDockerState(),
+	)
 }
 
 // waitForOutput returns a Cmd that waits for the next line of output
@@ -155,6 +177,93 @@ func (m *MonitorModel) waitForOutput() tea.Cmd {
 		}
 		return OutputLineMsg{Line: line}
 	}
+}
+
+// pollDockerState polls docker compose ps to get real container states
+func (m *MonitorModel) pollDockerState() tea.Cmd {
+	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
+		states := m.fetchDockerStates()
+		return DockerStateMsg{States: states}
+	})
+}
+
+// fetchDockerStates queries docker compose ps to get actual container states
+func (m *MonitorModel) fetchDockerStates() map[string]ServiceState {
+	states := make(map[string]ServiceState)
+
+	// Run docker compose ps --format json
+	cmd := exec.Command("docker", "compose", "-f", "docker-compose.yaml", "-f", "docker-compose-advanced.yaml", "ps", "--format", "json")
+	cmd.Dir = m.workDir
+
+	output, err := cmd.Output()
+	if err != nil {
+		log.Printf("Failed to fetch docker states: %v", err)
+		return states
+	}
+
+	// Parse JSON output (one JSON object per line)
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		var status DockerComposeStatus
+		if err := json.Unmarshal([]byte(line), &status); err != nil {
+			log.Printf("Failed to parse docker status: %v", err)
+			continue
+		}
+
+		// Map docker state to our ServiceState
+		serviceName := status.Service
+		if serviceName == "" {
+			continue
+		}
+
+		// Only track services we're monitoring
+		tracked := false
+		for _, svc := range m.selectedServices {
+			if svc == serviceName {
+				tracked = true
+				break
+			}
+		}
+		if !tracked {
+			continue
+		}
+
+		// Map State to ServiceState
+		state := strings.ToLower(status.State)
+		switch state {
+		case "running":
+			// Check health if available
+			if status.Health == "unhealthy" {
+				states[serviceName] = ServiceStateError
+			} else {
+				states[serviceName] = ServiceStateRunning
+			}
+		case "created":
+			states[serviceName] = ServiceStateCreating
+		case "restarting":
+			states[serviceName] = ServiceStateStarting
+		case "paused":
+			states[serviceName] = ServiceStateError
+		case "exited":
+			// Check exit code from Status field
+			if strings.Contains(status.Status, "Exited (0)") {
+				// Clean exit - could be a one-shot container
+				states[serviceName] = ServiceStateRunning
+			} else {
+				states[serviceName] = ServiceStateError
+			}
+		case "dead":
+			states[serviceName] = ServiceStateError
+		default:
+			states[serviceName] = ServiceStateUnknown
+		}
+	}
+
+	return states
 }
 
 func (m *MonitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -236,6 +345,16 @@ func (m *MonitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case DockerStateMsg:
+		// Update states from docker ps
+		for serviceName, state := range msg.States {
+			m.serviceStates[serviceName] = state
+		}
+		// Continue polling
+		if !m.done && !m.cleaning {
+			return m, m.pollDockerState()
+		}
+
 	case OutputLineMsg:
 		// Add line to output
 		m.outputLines = append(m.outputLines, msg.Line)
@@ -245,7 +364,7 @@ func (m *MonitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.outputLines = m.outputLines[len(m.outputLines)-m.maxLines:]
 		}
 
-		// Parse line to update service states
+		// Parse line for initial states (before docker ps kicks in)
 		m.parseLogLine(msg.Line)
 
 		// Continue reading from channel
@@ -275,7 +394,12 @@ func (m *MonitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *MonitorModel) parseLogLine(line string) {
 	lineLower := strings.ToLower(line)
 
-	// Check for each tracked service
+	// IGNORA completamente i log interni ai container (righe con pipe)
+	if strings.Contains(line, "|") {
+		return
+	}
+
+	// Parse solo i messaggi di Docker Compose
 	for _, serviceName := range m.selectedServices {
 		serviceNameLower := strings.ToLower(serviceName)
 
@@ -284,62 +408,20 @@ func (m *MonitorModel) parseLogLine(line string) {
 			continue
 		}
 
-		currentState := m.serviceStates[serviceName]
-
-		// Priorità agli stati: Running > Error > Starting > Creating > Pulling
-		// Non downgradiamo mai uno stato già "Running"
-		if currentState == ServiceStateRunning {
-			// Se è già Running, controlla solo per errori
-			if strings.Contains(lineLower, "error") || strings.Contains(lineLower, "failed") {
-				m.serviceStates[serviceName] = ServiceStateError
-			}
-			continue
-		}
-
-		// Detect state based on keywords with priority
-		// 1. Check for Running state first (highest priority)
-		if strings.Contains(line, "|") {
-			// Container is emitting logs (format: "service-1 | log message")
-			// This means it's running
+		// Pattern specifici di Docker Compose (non log interni)
+		if strings.Contains(lineLower, "pulling") || strings.Contains(lineLower, "pull") {
+			m.serviceStates[serviceName] = ServiceStatePulling
+		} else if strings.Contains(lineLower, "creating") {
+			m.serviceStates[serviceName] = ServiceStateCreating
+		} else if strings.Contains(lineLower, "created") {
+			m.serviceStates[serviceName] = ServiceStateCreating
+		} else if strings.Contains(lineLower, "starting") {
+			m.serviceStates[serviceName] = ServiceStateStarting
+		} else if strings.Contains(lineLower, "started") {
 			m.serviceStates[serviceName] = ServiceStateRunning
-			continue
-		}
-		if strings.Contains(lineLower, "started") && !strings.Contains(lineLower, "starting") {
-			// "Started" without "starting" means it's now running
-			m.serviceStates[serviceName] = ServiceStateRunning
-			continue
-		}
-		if strings.Contains(lineLower, "running") || strings.Contains(lineLower, "healthy") {
-			m.serviceStates[serviceName] = ServiceStateRunning
-			continue
-		}
-
-		// 2. Check for Error state (second priority)
-		if strings.Contains(lineLower, "error") || strings.Contains(lineLower, "failed") {
+		} else if strings.Contains(lineLower, "error") && !strings.Contains(line, "|") {
+			// Solo errori di Docker Compose, non log interni
 			m.serviceStates[serviceName] = ServiceStateError
-			continue
-		}
-
-		// 3. Check for intermediate states (only if not already in a higher state)
-		if currentState < ServiceStateStarting {
-			if strings.Contains(lineLower, "starting") {
-				m.serviceStates[serviceName] = ServiceStateStarting
-				continue
-			}
-		}
-
-		if currentState < ServiceStateCreating {
-			if strings.Contains(lineLower, "creating") || strings.Contains(lineLower, "created") {
-				m.serviceStates[serviceName] = ServiceStateCreating
-				continue
-			}
-		}
-
-		if currentState < ServiceStatePulling {
-			if strings.Contains(lineLower, "pulling") || strings.Contains(lineLower, "pull") {
-				m.serviceStates[serviceName] = ServiceStatePulling
-				continue
-			}
 		}
 	}
 }

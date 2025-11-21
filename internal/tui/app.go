@@ -144,7 +144,7 @@ func (a *App) runWithConfig(filePath string) error {
 
 	// Start TUI with monitor screen directly
 	a.currentScreen = ScreenMonitor
-	a.monitorModel = NewMonitorModel(a.executor, envVars, cmdParts, visibleServices)
+	a.monitorModel = NewMonitorModel(a.executor, envVars, cmdParts, visibleServices, a.workDir)
 
 	p := tea.NewProgram(a, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
@@ -393,7 +393,7 @@ func (a *App) handleExecute() (tea.Model, tea.Cmd) {
 
 	// Switch to monitor screen
 	a.currentScreen = ScreenMonitor
-	a.monitorModel = NewMonitorModel(a.executor, envVars, cmdParts, visibleServices)
+	a.monitorModel = NewMonitorModel(a.executor, envVars, cmdParts, visibleServices, a.workDir)
 
 	log.Println("Starting monitor screen")
 	return a, a.monitorModel.Start()
