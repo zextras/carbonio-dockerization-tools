@@ -39,8 +39,9 @@ var (
 
 // ServicesConfirmedMsg is sent when user confirms selections
 type ServicesConfirmedMsg struct {
-	Backend  map[string]string // service_name: tag
-	Frontend map[string]string // ui_name: tag (or "disabled")
+	Backend         map[string]string // service_name: tag
+	Frontend        map[string]string // ui_name: tag (or "disabled")
+	VisibleServices []string          // List of visible service names for monitoring
 }
 
 // ServiceItem represents a selectable service
@@ -370,9 +371,9 @@ func (m *ServicesModel) renderItem(index int, item *ServiceItem, maxNameLen int)
 	padding := maxNameLen - len(item.ServiceName) + 2 // 2 spazi minimi
 
 	if item.IsBackend {
-		padding += 10 // 10 tab extra per services
+		padding += 10
 	} else {
-		padding += 15 // 15 tab extra per UI
+		padding += 15
 	}
 
 	paddingStr := strings.Repeat(" ", padding)
@@ -494,6 +495,7 @@ func (m *ServicesModel) confirm() (tea.Model, tea.Cmd) {
 
 	backend := make(map[string]string)
 	frontend := make(map[string]string)
+	visibleServices := []string{} // Track visible services for monitoring
 
 	log.Printf("Building backend selection from %d visible items", len(m.backendItems))
 
@@ -504,6 +506,7 @@ func (m *ServicesModel) confirm() (tea.Model, tea.Cmd) {
 				tag = item.CustomTag
 			}
 			backend[item.ServiceName] = tag
+			visibleServices = append(visibleServices, item.ServiceName) // Add to visible list
 			log.Printf("  Backend: %s -> %s", item.ServiceName, tag)
 
 			// Auto-aggiungi registrator usando GlobalDockerConfig
@@ -522,6 +525,7 @@ func (m *ServicesModel) confirm() (tea.Model, tea.Cmd) {
 	for _, autoIncludedName := range parser.GlobalDockerConfig.AutoIncludedServices {
 		if autoIncludedSvc, exists := m.parsedConfig.BackendServices[autoIncludedName]; exists {
 			backend[autoIncludedName] = autoIncludedSvc.DefaultTag
+			visibleServices = append(visibleServices, autoIncludedName) // Add composed-ui to visible list
 			log.Printf("  Auto-added service: %s -> %s", autoIncludedName, autoIncludedSvc.DefaultTag)
 		}
 	}
@@ -542,13 +546,14 @@ func (m *ServicesModel) confirm() (tea.Model, tea.Cmd) {
 		log.Printf("  Frontend: %s -> %s", item.ServiceName, tag)
 	}
 
-	log.Printf("Sending confirmation message with %d backend, %d frontend",
-		len(backend), len(frontend))
+	log.Printf("Sending confirmation message with %d backend, %d frontend, %d visible services",
+		len(backend), len(frontend), len(visibleServices))
 
 	return m, func() tea.Msg {
 		return ServicesConfirmedMsg{
-			Backend:  backend,
-			Frontend: frontend,
+			Backend:         backend,
+			Frontend:        frontend,
+			VisibleServices: visibleServices,
 		}
 	}
 }

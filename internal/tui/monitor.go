@@ -12,8 +12,57 @@ import (
 
 var (
 	outputStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#FFFFFF"))
+			Foreground(lipgloss.Color("#FFFFFF"))
+
+	serviceReadyStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#00FF00"))
+
+	serviceWaitingStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FFA500"))
+
+	serviceErrorStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FF0000"))
 )
+
+// ServiceState represents the state of a service
+type ServiceState int
+
+const (
+	ServiceStateUnknown ServiceState = iota
+	ServiceStatePulling
+	ServiceStateCreating
+	ServiceStateStarting
+	ServiceStateRunning
+	ServiceStateError
+)
+
+func (s ServiceState) String() string {
+	switch s {
+	case ServiceStatePulling:
+		return "🔄 Pulling"
+	case ServiceStateCreating:
+		return "🔨 Creating"
+	case ServiceStateStarting:
+		return "⏳ Starting"
+	case ServiceStateRunning:
+		return "✓ Running"
+	case ServiceStateError:
+		return "❌ Error"
+	default:
+		return "⏳ Waiting"
+	}
+}
+
+func (s ServiceState) Style() lipgloss.Style {
+	switch s {
+	case ServiceStateRunning:
+		return serviceReadyStyle
+	case ServiceStateError:
+		return serviceErrorStyle
+	default:
+		return serviceWaitingStyle
+	}
+}
 
 // MonitorCompletedMsg is sent when docker compose finishes
 type MonitorCompletedMsg struct {
@@ -31,25 +80,37 @@ type MonitorModel struct {
 	envVars  string
 	cmdParts []string
 
-	outputChan  chan string
-	outputLines []string
-	maxLines    int
-	done        bool
-	err         error
-	cleaning    bool // Flag per indicare che stiamo facendo cleanup
+	outputChan       chan string
+	outputLines      []string
+	maxLines         int
+	done             bool
+	err              error
+	cleaning         bool
+	simpleView       bool // Toggle between simple and detailed view
+	selectedServices []string
+	serviceStates    map[string]ServiceState
 }
 
 // NewMonitorModel creates a new monitor model
-func NewMonitorModel(executor *docker.Executor, envVars string, cmdParts []string) *MonitorModel {
+func NewMonitorModel(executor *docker.Executor, envVars string, cmdParts []string, selectedServices []string) *MonitorModel {
+	// Initialize service states
+	states := make(map[string]ServiceState)
+	for _, svc := range selectedServices {
+		states[svc] = ServiceStateUnknown
+	}
+
 	return &MonitorModel{
-		executor:    executor,
-		envVars:     envVars,
-		cmdParts:    cmdParts,
-		outputChan:  make(chan string, 100),
-		outputLines: []string{},
-		maxLines:    30,
-		done:        false,
-		cleaning:    false,
+		executor:         executor,
+		envVars:          envVars,
+		cmdParts:         cmdParts,
+		outputChan:       make(chan string, 100),
+		outputLines:      []string{},
+		maxLines:         30,
+		done:             false,
+		cleaning:         false,
+		simpleView:       true, // Start with simple view
+		selectedServices: selectedServices,
+		serviceStates:    states,
 	}
 }
 
@@ -118,6 +179,11 @@ func (m *MonitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}()
 
 			return m, nil
+
+		case "l":
+			// Toggle between simple and detailed view
+			m.simpleView = !m.simpleView
+			log.Printf("Toggled view: simpleView=%v", m.simpleView)
 		}
 
 	case OutputLineMsg:
@@ -128,6 +194,9 @@ func (m *MonitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(m.outputLines) > m.maxLines {
 			m.outputLines = m.outputLines[len(m.outputLines)-m.maxLines:]
 		}
+
+		// Parse line to update service states
+		m.parseLogLine(msg.Line)
 
 		// Continue reading from channel
 		return m, m.waitForOutput()
@@ -153,19 +222,70 @@ func (m *MonitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *MonitorModel) parseLogLine(line string) {
+	lineLower := strings.ToLower(line)
+
+	// Check for each tracked service
+	for _, serviceName := range m.selectedServices {
+		serviceNameLower := strings.ToLower(serviceName)
+
+		// Skip if service not mentioned in this line
+		if !strings.Contains(lineLower, serviceNameLower) {
+			continue
+		}
+
+		// Detect state based on keywords
+		if strings.Contains(lineLower, "pulling") || strings.Contains(lineLower, "pull") {
+			m.serviceStates[serviceName] = ServiceStatePulling
+		} else if strings.Contains(lineLower, "creating") || strings.Contains(lineLower, "created") {
+			m.serviceStates[serviceName] = ServiceStateCreating
+		} else if strings.Contains(lineLower, "starting") || strings.Contains(lineLower, "started") {
+			m.serviceStates[serviceName] = ServiceStateStarting
+		} else if strings.Contains(lineLower, "error") || strings.Contains(lineLower, "failed") || strings.Contains(lineLower, "exited") {
+			m.serviceStates[serviceName] = ServiceStateError
+		} else if strings.Contains(line, "|") {
+			// Container is emitting logs (format: "service-1 | log message")
+			// This means it's running
+			m.serviceStates[serviceName] = ServiceStateRunning
+		} else if strings.Contains(lineLower, "running") || strings.Contains(lineLower, "healthy") {
+			m.serviceStates[serviceName] = ServiceStateRunning
+		}
+	}
+}
+
 func (m *MonitorModel) View() string {
 	var s strings.Builder
 
 	s.WriteString(titleStyle.Render("🚀 Starting Carbonio..."))
 	s.WriteString("\n\n")
 
-	// Show output lines
-	for _, line := range m.outputLines {
-		s.WriteString(outputStyle.Render(line))
+	if m.simpleView {
+		// Simple view: show service states
+		s.WriteString(sectionStyle.Render("Services Status:"))
 		s.WriteString("\n")
+
+		for _, serviceName := range m.selectedServices {
+			state := m.serviceStates[serviceName]
+			stateStr := state.String()
+			styledState := state.Style().Render(stateStr)
+
+			s.WriteString(fmt.Sprintf("  %s %s\n", styledState, serviceName))
+		}
+
+		s.WriteString("\n")
+		s.WriteString(helpStyle.Render("l: toggle detailed logs"))
+	} else {
+		// Detailed view: show all logs
+		for _, line := range m.outputLines {
+			s.WriteString(outputStyle.Render(line))
+			s.WriteString("\n")
+		}
+
+		s.WriteString("\n")
+		s.WriteString(helpStyle.Render("l: toggle simple view"))
 	}
 
-	s.WriteString("\n")
+	s.WriteString(" • ")
 	if m.cleaning {
 		s.WriteString(helpStyle.Render("Cleaning up... Please wait"))
 	} else if !m.done {
@@ -174,7 +294,7 @@ func (m *MonitorModel) View() string {
 		if m.err != nil {
 			s.WriteString(helpStyle.Render("Press ctrl+c or q to exit"))
 		} else {
-			s.WriteString(helpStyle.Render("Docker Compose is running. Press ctrl+c or q to stop and cleanup"))
+			s.WriteString(helpStyle.Render("Press ctrl+c or q to stop and cleanup"))
 		}
 	}
 

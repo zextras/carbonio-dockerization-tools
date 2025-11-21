@@ -40,7 +40,7 @@ func (e *Executor) CleanupAll() error {
 		"-f", "docker-compose.yaml",
 		"-f", "docker-compose-advanced.yaml",
 		"down",
-		"--remove-orphans",
+		"--remove-orphans", // Remove orphaned containers
 	}
 
 	cmd := exec.Command("docker", args...)

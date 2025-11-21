@@ -139,9 +139,18 @@ func (a *App) runWithConfig(filePath string) error {
 
 	log.Printf("Command built successfully")
 
+	// Build visible services list from pending data
+	visibleServices := []string{}
+	for serviceName := range a.pendingBackend {
+		// Add only if not hidden (visible to user)
+		if !parser.GlobalDockerConfig.IsServiceHidden(serviceName) {
+			visibleServices = append(visibleServices, serviceName)
+		}
+	}
+
 	// Start TUI with monitor screen directly
 	a.currentScreen = ScreenMonitor
-	a.monitorModel = NewMonitorModel(a.executor, envVars, cmdParts)
+	a.monitorModel = NewMonitorModel(a.executor, envVars, cmdParts, visibleServices)
 
 	p := tea.NewProgram(a, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
@@ -368,9 +377,20 @@ func (a *App) handleExecute() (tea.Model, tea.Cmd) {
 	log.Printf("Env vars: %s", envVars)
 	log.Printf("Cmd parts: %v", cmdParts)
 
+	// Build visible services list from pending data
+	visibleServices := []string{}
+	for serviceName := range a.pendingBackend {
+		// Add only if not hidden (visible to user)
+		if !parser.GlobalDockerConfig.IsServiceHidden(serviceName) {
+			visibleServices = append(visibleServices, serviceName)
+		}
+	}
+
+	log.Printf("Visible services for monitoring: %v", visibleServices)
+
 	// Switch to monitor screen
 	a.currentScreen = ScreenMonitor
-	a.monitorModel = NewMonitorModel(a.executor, envVars, cmdParts)
+	a.monitorModel = NewMonitorModel(a.executor, envVars, cmdParts, visibleServices)
 
 	log.Println("Starting monitor screen")
 	return a, a.monitorModel.Start()
