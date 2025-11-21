@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# Script di build per Carbonio Docker CLI
-# Compila la CLI con tutte le dipendenze embedded
-
 set -e
 
 VERSION="${VERSION:-dev}"
@@ -15,10 +12,8 @@ echo "   Commit:  $COMMIT"
 echo "   Date:    $DATE"
 echo ""
 
-# Pulisci build precedenti
 rm -f carbonio-docker-cli
 
-# Compila con ldflags per versioning
 go build \
   -ldflags="-X 'main.version=$VERSION' -X 'main.commit=$COMMIT' -X 'main.date=$DATE'" \
   -o carbonio-docker-cli \
