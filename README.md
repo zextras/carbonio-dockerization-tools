@@ -3,8 +3,40 @@
 This repo contains the compose files of Carbonio.
 Every project can include it as a submodule, overriding configs to match their specific needs.
 
-Some services are mocked for the sake of keeping things simple (Consul).
+Some services are mocked for the sake of keeping things simple.
 
+## Quick start
+
+Start mails: 
+```bash 
+./start-mails.sh
+```
+Start files:
+```bash 
+./start-files.sh
+```
+Start tasks:
+```bash 
+./start-tasks.sh
+```
+Start WSC:
+```bash 
+./start-wsc.sh
+```
+Start WSC with Videoserver:
+```bash 
+./start-wsc-videoserver.sh
+```
+To start in advanced mode (e.g.: files):
+
+```bash 
+./start-files.sh --advanced
+```
+
+Stop:
+```bash 
+./stop.sh
+```
 ## How does it work?
 
 The [docker-compose.yaml](docker-compose.yaml) file uses available images for the CE version of 
