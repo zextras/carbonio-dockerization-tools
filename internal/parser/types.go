@@ -51,6 +51,27 @@ var RequiredServices = []string{
 	"memcached",
 }
 
+// RegistratorToService mappa ogni registrator al suo servizio parent
+var RegistratorToService = map[string]string{
+	// CE registrators
+	"mailbox-registrator":            "carbonio-mailbox",
+	"user-management-registrator":    "carbonio-user-management",
+	"catalog-registrator":            "carbonio-catalog",
+	"storages-registrator":           "carbonio-storages",
+	"docs-connector-registrator":     "carbonio-docs-connector",
+	"docs-editor-registrator":        "carbonio-docs-editor",
+	"preview-registrator":            "carbonio-preview",
+	"files-registrator":              "carbonio-files",
+	"tasks-registrator":              "carbonio-tasks",
+	"message-dispatcher-registrator": "carbonio-message-dispatcher",
+	"wsc-registrator":                "carbonio-ws-collaboration",
+
+	// Advanced registrators
+	"advanced-registrator":     "carbonio-mailbox",
+	"address-book-registrator": "carbonio-mailbox",
+	"auth-registrator":         "carbonio-mailbox",
+}
+
 // IsServiceRequired controlla se un servizio è obbligatorio
 func IsServiceRequired(serviceName string) bool {
 	for _, required := range RequiredServices {
@@ -63,23 +84,22 @@ func IsServiceRequired(serviceName string) bool {
 
 // IsRegistrator controlla se un servizio è un registrator
 func IsRegistrator(serviceName string) bool {
-	return len(serviceName) > 12 && serviceName[len(serviceName)-12:] == "-registrator"
+	_, exists := RegistratorToService[serviceName]
+	return exists
 }
 
-// GetParentService estrae il nome del servizio parent da un registrator
-// Es: "files-registrator" -> "carbonio-files"
-func GetParentService(registratorName string) string {
-	if !IsRegistrator(registratorName) {
-		return ""
+// GetParentServiceFromMap restituisce il servizio parent di un registrator
+func GetParentServiceFromMap(registratorName string) string {
+	return RegistratorToService[registratorName]
+}
+
+// GetRegistratorsForService restituisce tutti i registrator per un dato servizio
+func GetRegistratorsForService(serviceName string) []string {
+	var registrators []string
+	for regName, parentService := range RegistratorToService {
+		if parentService == serviceName {
+			registrators = append(registrators, regName)
+		}
 	}
-
-	// Rimuovi "-registrator" dalla fine
-	baseName := registratorName[:len(registratorName)-12]
-
-	// Aggiungi "carbonio-" se non c'è già
-	if len(baseName) < 9 || baseName[:9] != "carbonio-" {
-		return "carbonio-" + baseName
-	}
-
-	return baseName
+	return registrators
 }

@@ -17,7 +17,6 @@ var (
 	sectionStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#FFA500"))
-	// Rimossi MarginTop e MarginBottom
 
 	checkboxStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFFFFF"))
@@ -396,13 +395,8 @@ func (m *ServicesModel) toggleSelection() {
 	log.Printf("Toggled service %s: selected=%v", item.Name, item.Selected)
 
 	// Se backend service, handle dependencies
-	if item.IsBackend {
-		if item.Selected {
-			m.autoSelectDependencies(item)
-			m.autoSelectRegistrator(item)
-		} else {
-			m.autoDeselectRegistrator(item)
-		}
+	if item.IsBackend && item.Selected {
+		m.autoSelectDependencies(item)
 	}
 }
 
@@ -421,41 +415,6 @@ func (m *ServicesModel) autoSelectDependencies(item *ServiceItem) {
 			}
 		}
 	}
-}
-
-// autoSelectRegistrator seleziona automaticamente il registrator associato
-func (m *ServicesModel) autoSelectRegistrator(item *ServiceItem) {
-	// Cerca il registrator per questo servizio
-	// Es: se item è "carbonio-files", cerca "files-registrator"
-	registratorName := ""
-
-	// Estrai il nome base (senza carbonio-)
-	baseName := item.Name
-	if strings.HasPrefix(baseName, "carbonio-") {
-		baseName = baseName[9:] // Rimuovi "carbonio-"
-	}
-	registratorName = baseName + "-registrator"
-
-	log.Printf("Looking for registrator: %s", registratorName)
-
-	// Cerca e seleziona il registrator (anche se nascosto dalla UI)
-	if _, exists := m.parsedConfig.BackendServices[registratorName]; exists {
-		log.Printf("  - Auto-selected registrator: %s", registratorName)
-	}
-}
-
-// autoDeselectRegistrator deseleziona automaticamente il registrator associato
-func (m *ServicesModel) autoDeselectRegistrator(item *ServiceItem) {
-	// Cerca il registrator per questo servizio
-	baseName := item.Name
-	if strings.HasPrefix(baseName, "carbonio-") {
-		baseName = baseName[9:]
-	}
-	registratorName := baseName + "-registrator"
-
-	log.Printf("Deselecting registrator: %s", registratorName)
-
-	// Il registrator verrà automaticamente escluso in confirm()
 }
 
 func (m *ServicesModel) startTagEdit() {
@@ -515,13 +474,12 @@ func (m *ServicesModel) handleTagEdit(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *ServicesModel) confirm() (tea.Model, tea.Cmd) {
 	log.Println("=== Confirm called ===")
 
-	// Build selection maps
 	backend := make(map[string]string)
 	frontend := make(map[string]string)
 
 	log.Printf("Building backend selection from %d visible items", len(m.backendItems))
 
-	// Backend: include servizi selezionati + registrator
+	// Backend: include servizi selezionati + loro registrator
 	for _, item := range m.backendItems {
 		if item.Selected {
 			// Trova il servizio reale dal DisplayName
@@ -545,17 +503,13 @@ func (m *ServicesModel) confirm() (tea.Model, tea.Cmd) {
 			backend[realServiceName] = tag
 			log.Printf("  Backend: %s -> %s", realServiceName, tag)
 
-			// Auto-includi il registrator se esiste
-			registratorName := ""
-			baseName := realServiceName
-			if strings.HasPrefix(baseName, "carbonio-") {
-				baseName = baseName[9:]
-			}
-			registratorName = baseName + "-registrator"
-
-			if regSvc, exists := m.parsedConfig.BackendServices[registratorName]; exists {
-				backend[registratorName] = regSvc.DefaultTag
-				log.Printf("  Auto-added registrator: %s -> %s", registratorName, regSvc.DefaultTag)
+			// Auto-includi TUTTI i registrator per questo servizio (usando la mappa)
+			registrators := parser.GetRegistratorsForService(realServiceName)
+			for _, regName := range registrators {
+				if regSvc, exists := m.parsedConfig.BackendServices[regName]; exists {
+					backend[regName] = regSvc.DefaultTag
+					log.Printf("  Auto-added registrator: %s -> %s (for %s)", regName, regSvc.DefaultTag, realServiceName)
+				}
 			}
 		}
 	}
@@ -568,7 +522,7 @@ func (m *ServicesModel) confirm() (tea.Model, tea.Cmd) {
 
 	log.Printf("Building frontend selection from %d visible items", len(m.frontendItems))
 
-	// Frontend: TUTTI devono essere presenti, "disabled" solo internamente
+	// Frontend: TUTTI devono essere presenti
 	for _, item := range m.frontendItems {
 		tag := item.DefaultTag
 		if item.CustomTag != "" && !item.TagLocked {
@@ -595,34 +549,44 @@ func (m *ServicesModel) confirm() (tea.Model, tea.Cmd) {
 }
 
 func (m *ServicesModel) exportConfig() (tea.Model, tea.Cmd) {
-	// Build selection maps - COMPLETI con tutti i servizi (anche nascosti)
 	backend := make(map[string]string)
 	frontend := make(map[string]string)
 
-	// Backend: servizi selezionati
+	// Backend: servizi selezionati + loro registrator
 	for _, item := range m.backendItems {
 		if item.Selected {
+			// Trova il servizio reale dal DisplayName
+			var realServiceName string
+			for name, svc := range m.parsedConfig.BackendServices {
+				if svc.DisplayName == item.Name || name == item.Name {
+					realServiceName = name
+					break
+				}
+			}
+
+			if realServiceName == "" {
+				continue
+			}
+
 			tag := item.DefaultTag
 			if item.CustomTag != "" && !item.TagLocked {
 				tag = item.CustomTag
 			}
-			backend[item.Name] = tag
+			backend[realServiceName] = tag
+
+			// Auto-includi tutti i registrator per questo servizio
+			registrators := parser.GetRegistratorsForService(realServiceName)
+			for _, regName := range registrators {
+				if regSvc, exists := m.parsedConfig.BackendServices[regName]; exists {
+					backend[regName] = regSvc.DefaultTag
+				}
+			}
 		}
 	}
 
-	// Aggiungi registrator per i servizi selezionati
-	for _, item := range m.backendItems {
-		if item.Selected {
-			baseName := item.Name
-			if strings.HasPrefix(baseName, "carbonio-") {
-				baseName = baseName[9:]
-			}
-			registratorName := baseName + "-registrator"
-
-			if regSvc, exists := m.parsedConfig.BackendServices[registratorName]; exists {
-				backend[registratorName] = regSvc.DefaultTag
-			}
-		}
+	// Aggiungi carbonio-composed-ui
+	if composedUI, exists := m.parsedConfig.BackendServices["carbonio-composed-ui"]; exists {
+		backend["carbonio-composed-ui"] = composedUI.DefaultTag
 	}
 
 	// Frontend: TUTTI devono essere presenti
@@ -649,7 +613,6 @@ func (m *ServicesModel) exportConfig() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// TODO: Show success message
 	fmt.Printf("\n✓ Configuration exported to %s\n", filename)
 
 	return m, nil

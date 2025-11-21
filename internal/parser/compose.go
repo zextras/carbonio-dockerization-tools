@@ -40,9 +40,6 @@ func ParseComposeFile(data []byte, edition Edition) (map[string]*ServiceDefiniti
 	services := make(map[string]*ServiceDefinition)
 
 	for name, svc := range compose.Services {
-		// NON skippiamo più servizi con restart:no - li trattiamo come gli altri
-		// Questo perché potrebbero essere necessari (come provisioner)
-
 		// Skip if no image and no build (shouldn't happen but be safe)
 		if svc.Image == "" && svc.Build == nil {
 			log.Printf("Skipping service %s (no image or build)", name)
@@ -54,7 +51,7 @@ func ParseComposeFile(data []byte, edition Edition) (map[string]*ServiceDefiniti
 			Available:     []string{string(edition)},
 			IsRequired:    IsServiceRequired(name),
 			IsRegistrator: IsRegistrator(name),
-			ParentService: GetParentService(name),
+			ParentService: GetParentServiceFromMap(name), // Usa la mappa statica
 		}
 
 		// Extract ENV var and default image from ${ENV:-default} or ${ENV-default} syntax
