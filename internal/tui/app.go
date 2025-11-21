@@ -65,7 +65,7 @@ func (a *App) Run() error {
 	}
 	fmt.Println("✓ Cleanup complete\n")
 
-	// If config file provided via flag, load it directly
+	// If config file provided via flag, load it and go directly to monitor
 	if a.configFile != "" {
 		return a.runWithConfig(a.configFile)
 	}
@@ -81,11 +81,11 @@ func (a *App) Run() error {
 	return nil
 }
 
-// runWithConfig loads config from file and starts directly
+// runWithConfig loads config from file and starts directly with monitor screen
 func (a *App) runWithConfig(filePath string) error {
 	log.Printf("=== Running with config file: %s ===", filePath)
 
-	// Parse docker files first
+	// Parse docker files first (with CE to get basic structure)
 	parsedConfig, err := parser.ParseAll(a.workDir, parser.EditionCE)
 	if err != nil {
 		return fmt.Errorf("failed to parse docker files: %w", err)
@@ -112,25 +112,21 @@ func (a *App) runWithConfig(filePath string) error {
 	a.parsedConfig = parsedConfig
 	a.userConfig = userConfig
 	a.edition = edition
+	a.pendingBackend = userConfig.Carbonio.Backend
+	a.pendingFrontend = userConfig.Carbonio.Frontend
 
-	// Build and execute command
-	return a.executeFromConfig()
-}
-
-// executeFromConfig executes docker compose from loaded config
-func (a *App) executeFromConfig() error {
-	log.Println("=== Executing from config ===")
-
+	// Build docker compose command
+	log.Println("Building docker command from config...")
 	builder := docker.NewCommandBuilder(a.workDir, a.edition, a.parsedConfig)
 
 	// Set backend services
-	for serviceName, tag := range a.userConfig.Carbonio.Backend {
+	for serviceName, tag := range a.pendingBackend {
 		builder.SetBackendService(serviceName, tag)
 		log.Printf("Backend: %s -> %s", serviceName, tag)
 	}
 
 	// Set frontend images
-	for uiName, tag := range a.userConfig.Carbonio.Frontend {
+	for uiName, tag := range a.pendingFrontend {
 		builder.SetFrontendImage(uiName, tag)
 		log.Printf("Frontend: %s -> %s", uiName, tag)
 	}
@@ -141,24 +137,27 @@ func (a *App) executeFromConfig() error {
 		return fmt.Errorf("failed to build command: %w", err)
 	}
 
-	fmt.Printf("🚀 Starting Carbonio %s...\n\n", a.edition)
-	log.Printf("Command: %s %v\n", envVars, cmdParts)
+	log.Printf("Command built successfully")
 
-	// Execute
-	outputChan := make(chan string, 100)
+	// Start TUI with monitor screen directly
+	a.currentScreen = ScreenMonitor
+	a.monitorModel = NewMonitorModel(a.executor, envVars, cmdParts)
 
-	go func() {
-		for line := range outputChan {
-			fmt.Println(line)
-		}
-	}()
+	p := tea.NewProgram(a, tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		return fmt.Errorf("TUI error: %w", err)
+	}
 
-	return a.executor.Execute(envVars, cmdParts, outputChan)
+	return nil
 }
 
 // Bubbletea Model interface implementation
 
 func (a *App) Init() tea.Cmd {
+	// If we're starting directly in monitor screen (from config file)
+	if a.currentScreen == ScreenMonitor && a.monitorModel != nil {
+		return a.monitorModel.Start()
+	}
 	return nil
 }
 
@@ -380,14 +379,44 @@ func (a *App) handleExecute() (tea.Model, tea.Cmd) {
 func (a *App) handleFilePickerChoice(filePath string) (tea.Model, tea.Cmd) {
 	log.Printf("=== File picker choice: %s ===", filePath)
 
-	// Run with selected config file
-	if err := a.runWithConfig(filePath); err != nil {
-		log.Printf("ERROR: Failed to run with config: %v", err)
+	// Parse docker files first
+	parsedConfig, err := parser.ParseAll(a.workDir, parser.EditionCE)
+	if err != nil {
+		log.Printf("ERROR: Failed to parse docker files: %v", err)
+		fmt.Printf("\n❌ Error parsing docker files: %v\n", err)
+		return a, tea.Quit
+	}
+
+	// Load user config
+	userConfig, err := config.LoadConfig(filePath, parsedConfig)
+	if err != nil {
+		log.Printf("ERROR: Failed to load config: %v", err)
 		fmt.Printf("\n❌ Error loading config: %v\n", err)
 		return a, tea.Quit
 	}
 
-	return a, tea.Quit
+	// Set edition
+	edition := parser.EditionCE
+	if userConfig.Carbonio.Edition == "advanced" {
+		edition = parser.EditionAdvanced
+	}
+
+	// Re-parse with correct edition
+	parsedConfig, err = parser.ParseAll(a.workDir, edition)
+	if err != nil {
+		log.Printf("ERROR: Failed to parse docker files: %v", err)
+		fmt.Printf("\n❌ Error parsing docker files: %v\n", err)
+		return a, tea.Quit
+	}
+
+	a.parsedConfig = parsedConfig
+	a.userConfig = userConfig
+	a.edition = edition
+	a.pendingBackend = userConfig.Carbonio.Backend
+	a.pendingFrontend = userConfig.Carbonio.Frontend
+
+	// Go directly to execute
+	return a.handleExecute()
 }
 
 func (a *App) saveConfig(filename string) error {
