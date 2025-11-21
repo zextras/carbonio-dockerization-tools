@@ -1,16 +1,49 @@
-name: Build and Release
+name: Release and Build
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - devel
 
 permissions:
   contents: write
+  issues: write
+  pull-requests: write
 
 jobs:
+  semantic-release:
+    runs-on: ubuntu-latest
+    outputs:
+      new-release-published: ${{ steps.semantic.outputs.new-release-published }}
+      new-release-version: ${{ steps.semantic.outputs.new-release-version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+
+      - name: Install semantic-release
+        run: |
+          npm install -g semantic-release \
+            @semantic-release/commit-analyzer \
+            @semantic-release/release-notes-generator \
+            @semantic-release/github
+
+      - name: Run semantic-release
+        id: semantic
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx semantic-release
+
   build:
-    name: Build for ${{ matrix.goos }}-${{ matrix.goarch }}
+    needs: semantic-release
+    if: needs.semantic-release.outputs.new-release-published == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -48,16 +81,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.semantic-release.outputs.new-release-version }}
 
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.21'
 
-      - name: Get version info
-        id: version
+      - name: Get build info
+        id: info
         run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
+          VERSION=${{ needs.semantic-release.outputs.new-release-version }}
           COMMIT=${GITHUB_SHA::7}
           DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
@@ -70,13 +105,13 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
         run: |
-          BINARY_NAME="carbonio-docker-cli-${{ steps.version.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          BINARY_NAME="carbonio-docker-cli-${{ steps.info.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}"
           if [ "${{ matrix.goos }}" = "windows" ]; then
             BINARY_NAME="${BINARY_NAME}.exe"
           fi
           
           go build \
-            -ldflags="-X 'main.version=${{ steps.version.outputs.version }}' -X 'main.commit=${{ steps.version.outputs.commit }}' -X 'main.date=${{ steps.version.outputs.date }}'" \
+            -ldflags="-X 'main.version=${{ steps.info.outputs.version }}' -X 'main.commit=${{ steps.info.outputs.commit }}' -X 'main.date=${{ steps.info.outputs.date }}'" \
             -o "${BINARY_NAME}" \
             ./cmd/carbonio-docker-cli
           
@@ -89,18 +124,11 @@ jobs:
           name: carbonio-docker-cli-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
             carbonio-docker-cli-*
-            !carbonio-docker-cli-*.sha256
           retention-days: 1
 
-      - name: Upload checksum
-        uses: actions/upload-artifact@v4
-        with:
-          name: checksum-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: carbonio-docker-cli-*.sha256
-          retention-days: 1
-
-  release:
-    needs: build
+  upload-release-assets:
+    needs: [semantic-release, build]
+    if: needs.semantic-release.outputs.new-release-published == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
@@ -112,11 +140,11 @@ jobs:
         run: |
           mkdir -p release-assets
           find artifacts -type f -exec mv {} release-assets/ \;
+          ls -lh release-assets/
 
-      - name: Create Release
+      - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: v${{ needs.semantic-release.outputs.new-release-version }}
           files: release-assets/*
-          generate_release_notes: true
-          draft: false
-          prerelease: false
+          fail_on_unmatched_files: true
