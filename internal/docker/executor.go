@@ -7,8 +7,10 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"syscall"
+	"time"
 )
 
 type Executor struct {
@@ -21,78 +23,154 @@ func NewExecutor(workDir string) *Executor {
 		workDir: workDir,
 	}
 }
+
 func (e *Executor) CleanupExisting(edition string) error {
 	return e.CleanupAll()
 }
+
 func (e *Executor) CleanupAll() error {
 	return e.cleanupAllWithOutput(true)
 }
+
 func (e *Executor) CleanupAllQuiet() error {
 	return e.cleanupAllWithOutput(false)
 }
+
 func (e *Executor) cleanupAllWithOutput(showOutput bool) error {
 	log.Println("Running complete cleanup (CE + Advanced)...")
-	args := []string{
+
+	log.Println("Stopping containers gracefully...")
+	stopArgs := []string{
 		"compose",
 		"-f", "docker-compose.yaml",
 		"-f", "docker-compose-advanced.yaml",
-		"down",
-		"--remove-orphans",
+		"stop",
+		"--timeout", "60",
 	}
-	cmd := exec.Command("docker", args...)
-	cmd.Dir = e.workDir
+	stopCmd := exec.Command("docker", stopArgs...)
+	stopCmd.Dir = e.workDir
 	if showOutput {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+		stopCmd.Stdout = os.Stdout
+		stopCmd.Stderr = os.Stderr
 	}
-	if err := cmd.Run(); err != nil {
-		log.Printf("Compose down failed: %v", err)
+	if err := stopCmd.Run(); err != nil {
+		log.Printf("Warning: compose stop failed: %v (continuing anyway)", err)
 	} else {
-		log.Println("Compose down completed")
+		log.Println("Compose stop completed")
 	}
+
+	time.Sleep(2 * time.Second)
+
+	maxRetries := 3
+	var lastErr error
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		log.Printf("Cleanup attempt %d/%d...", attempt, maxRetries)
+
+		args := []string{
+			"compose",
+			"-f", "docker-compose.yaml",
+			"-f", "docker-compose-advanced.yaml",
+			"down",
+			"--remove-orphans",
+			"--timeout", "30",
+		}
+
+		cmd := exec.Command("docker", args...)
+		cmd.Dir = e.workDir
+		if showOutput {
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+		}
+
+		err := cmd.Run()
+		if err == nil {
+			log.Println("Compose down completed successfully")
+			lastErr = nil
+			break
+		}
+
+		errStr := err.Error()
+		if strings.Contains(errStr, "is restarting") || strings.Contains(errStr, "wait until the container is running") {
+			log.Printf("Container is restarting, waiting before retry %d/%d...", attempt, maxRetries)
+			if attempt < maxRetries {
+				time.Sleep(time.Duration(attempt*3) * time.Second)
+				continue
+			}
+		}
+
+		lastErr = err
+		log.Printf("Compose down attempt %d failed: %v", attempt, err)
+
+		if attempt < maxRetries {
+			time.Sleep(time.Duration(attempt*2) * time.Second)
+		}
+	}
+
+	if lastErr != nil {
+		log.Printf("Warning: compose down failed after %d attempts: %v (continuing to prune)", maxRetries, lastErr)
+	}
+
 	log.Println("Running docker system prune...")
-	pruneArgs := []string{
-		"system",
-		"prune",
-		"-f",
+	for attempt := 1; attempt <= 2; attempt++ {
+		pruneArgs := []string{
+			"system",
+			"prune",
+			"-f",
+		}
+		pruneCmd := exec.Command("docker", pruneArgs...)
+		pruneCmd.Dir = e.workDir
+		if showOutput {
+			pruneCmd.Stdout = os.Stdout
+			pruneCmd.Stderr = os.Stderr
+		}
+
+		if err := pruneCmd.Run(); err != nil {
+			log.Printf("System prune attempt %d failed: %v", attempt, err)
+			if attempt < 2 {
+				time.Sleep(2 * time.Second)
+				continue
+			}
+			return fmt.Errorf("system prune failed: %w", err)
+		}
+
+		log.Println("System prune completed")
+		break
 	}
-	pruneCmd := exec.Command("docker", pruneArgs...)
-	pruneCmd.Dir = e.workDir
-	if showOutput {
-		pruneCmd.Stdout = os.Stdout
-		pruneCmd.Stderr = os.Stderr
-	}
-	if err := pruneCmd.Run(); err != nil {
-		log.Printf("System prune failed: %v", err)
-		return fmt.Errorf("system prune failed: %w", err)
-	}
-	log.Println("System prune completed")
-	log.Println("Cleanup completed successfully")
+
+	log.Println("Cleanup completed")
 	return nil
 }
+
 func (e *Executor) Execute(envVars string, cmdParts []string, outputChan chan string) error {
 	cmd := exec.Command(cmdParts[0], cmdParts[1:]...)
 	cmd.Dir = e.workDir
 	cmd.Env = append(os.Environ(), parseEnvVars(envVars)...)
+
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
+
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		return fmt.Errorf("failed to create stderr pipe: %w", err)
 	}
+
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start docker compose: %w", err)
 	}
+
 	e.cmd = cmd
+
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	go func() {
-		<-sigChan
-		log.Println("Signal received in executor, stopping and cleaning up...")
+		sig := <-sigChan
+		log.Printf("!!! Signal received in executor: %v, initiating graceful shutdown...", sig)
 		e.StopAndCleanup()
 	}()
+
 	go func() {
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
@@ -101,6 +179,7 @@ func (e *Executor) Execute(envVars string, cmdParts []string, outputChan chan st
 			outputChan <- line
 		}
 	}()
+
 	go func() {
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
@@ -109,10 +188,20 @@ func (e *Executor) Execute(envVars string, cmdParts []string, outputChan chan st
 			outputChan <- line
 		}
 	}()
+
 	err = cmd.Wait()
 	close(outputChan)
-	return err
+
+	if err != nil {
+		log.Printf("Docker compose process exited with error: %v", err)
+		log.Println("NOTE: This may be a temporary container failure. Docker Compose may still be managing restarts.")
+	} else {
+		log.Println("Docker compose process exited normally")
+	}
+
+	return nil
 }
+
 func (e *Executor) Stop() error {
 	if e.cmd != nil && e.cmd.Process != nil {
 		log.Println("Stopping docker compose process...")
@@ -120,13 +209,20 @@ func (e *Executor) Stop() error {
 	}
 	return nil
 }
+
 func (e *Executor) StopAndCleanup() error {
-	log.Println("Stopping and cleaning up...")
+	log.Println("=== StopAndCleanup called ===")
+	log.Printf("Call stack:\n%s", string(debug.Stack()))
+
 	if err := e.Stop(); err != nil {
-		log.Printf("Failed to stop process: %v", err)
+		log.Printf("Warning: failed to stop process: %v", err)
 	}
+
+	time.Sleep(2 * time.Second)
+
 	return e.CleanupAllQuiet()
 }
+
 func parseEnvVars(envString string) []string {
 	if envString == "" {
 		return []string{}

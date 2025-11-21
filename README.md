@@ -3,7 +3,7 @@
 A multiplatform CLI based on [carbonio-base-dockerization](https://github.com/zextras/carbonio-base-dockerization) created to simplify a granular startup
 process without having to handle 5-line long docker commands.
 
-Download from [here](https://github.com/galvagnimatteo/carbonio-docker-cli/releases/tag/v1.0.2).
+Download from [here](https://github.com/galvagnimatteo/carbonio-docker-cli/releases).
 
 ## What it does
 

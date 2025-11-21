@@ -46,11 +46,12 @@ func (s ServiceState) String() string {
 	case ServiceStateRunning:
 		return "✓ Running"
 	case ServiceStateError:
-		return "❌ Error"
+		return "✖ Error"
 	default:
 		return "⏳ Waiting"
 	}
 }
+
 func (s ServiceState) Style() lipgloss.Style {
 	switch s {
 	case ServiceStateRunning:
@@ -65,12 +66,15 @@ func (s ServiceState) Style() lipgloss.Style {
 type MonitorCompletedMsg struct {
 	Error error
 }
+
 type OutputLineMsg struct {
 	Line string
 }
+
 type DockerStateMsg struct {
 	States map[string]ServiceState
 }
+
 type MonitorModel struct {
 	executor         *docker.Executor
 	envVars          string
@@ -79,7 +83,7 @@ type MonitorModel struct {
 	outputChan       chan string
 	outputLines      []string
 	maxLines         int
-	done             bool
+	composeExited    bool
 	err              error
 	cleaning         bool
 	simpleView       bool
@@ -88,6 +92,7 @@ type MonitorModel struct {
 	viewOffset       int
 	viewHeight       int
 }
+
 type DockerComposeStatus struct {
 	Name    string `json:"Name"`
 	State   string `json:"State"`
@@ -109,7 +114,7 @@ func NewMonitorModel(executor *docker.Executor, envVars string, cmdParts []strin
 		outputChan:       make(chan string, 100),
 		outputLines:      []string{},
 		maxLines:         30,
-		done:             false,
+		composeExited:    false,
 		cleaning:         false,
 		simpleView:       true,
 		selectedServices: selectedServices,
@@ -118,43 +123,49 @@ func NewMonitorModel(executor *docker.Executor, envVars string, cmdParts []strin
 		viewHeight:       20,
 	}
 }
+
 func (m *MonitorModel) Init() tea.Cmd {
 	return nil
 }
+
 func (m *MonitorModel) Start() tea.Cmd {
 	log.Println("=== MonitorModel.Start() called ===")
 	go func() {
 		log.Println("Starting docker compose execution...")
 		err := m.executor.Execute(m.envVars, m.cmdParts, m.outputChan)
 		if err != nil {
-			log.Printf("Docker execution failed: %v", err)
+			log.Printf("!!! Docker execution returned error: %v", err)
 			m.err = err
 		}
-		log.Println("Docker compose execution finished")
+		log.Println("Docker compose execution goroutine finished")
 	}()
 	return tea.Batch(
 		m.waitForOutput(),
 		m.pollDockerState(),
 	)
 }
+
 func (m *MonitorModel) waitForOutput() tea.Cmd {
 	return func() tea.Msg {
 		line, ok := <-m.outputChan
 		if !ok {
-			log.Println("Output channel closed")
+			log.Println("Output channel closed - docker compose process has exited")
 			return MonitorCompletedMsg{Error: m.err}
 		}
 		return OutputLineMsg{Line: line}
 	}
 }
+
 func (m *MonitorModel) pollDockerState() tea.Cmd {
 	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
 		states := m.fetchDockerStates()
 		return DockerStateMsg{States: states}
 	})
 }
+
 func (m *MonitorModel) fetchDockerStates() map[string]ServiceState {
 	states := make(map[string]ServiceState)
+
 	cmd := exec.Command("docker", "compose", "-f", "docker-compose.yaml", "-f", "docker-compose-advanced.yaml", "ps", "--format", "json")
 	cmd.Dir = m.workDir
 	output, err := cmd.Output()
@@ -162,20 +173,24 @@ func (m *MonitorModel) fetchDockerStates() map[string]ServiceState {
 		log.Printf("Failed to fetch docker states: %v", err)
 		return states
 	}
+
 	lines := strings.Split(string(output), "\n")
 	for _, line := range lines {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
+
 		var status DockerComposeStatus
 		if err := json.Unmarshal([]byte(line), &status); err != nil {
 			log.Printf("Failed to parse docker status: %v", err)
 			continue
 		}
+
 		serviceName := status.Service
 		if serviceName == "" {
 			continue
 		}
+
 		tracked := false
 		for _, svc := range m.selectedServices {
 			if svc == serviceName {
@@ -186,34 +201,52 @@ func (m *MonitorModel) fetchDockerStates() map[string]ServiceState {
 		if !tracked {
 			continue
 		}
+
 		state := strings.ToLower(status.State)
+		var newState ServiceState
+
 		switch state {
 		case "running":
 			if status.Health == "unhealthy" {
-				states[serviceName] = ServiceStateError
+				newState = ServiceStateError
 			} else {
-				states[serviceName] = ServiceStateRunning
+				newState = ServiceStateRunning
 			}
 		case "created":
-			states[serviceName] = ServiceStateCreating
+			newState = ServiceStateCreating
 		case "restarting":
-			states[serviceName] = ServiceStateStarting
+			newState = ServiceStateStarting
 		case "paused":
-			states[serviceName] = ServiceStateError
+			newState = ServiceStateError
 		case "exited":
 			if strings.Contains(status.Status, "Exited (0)") {
-				states[serviceName] = ServiceStateRunning
+				newState = ServiceStateRunning
 			} else {
-				states[serviceName] = ServiceStateError
+				newState = ServiceStateError
 			}
 		case "dead":
-			states[serviceName] = ServiceStateError
+			newState = ServiceStateError
 		default:
-			states[serviceName] = ServiceStateUnknown
+			newState = ServiceStateUnknown
 		}
+
+		oldState, existed := m.serviceStates[serviceName]
+		if !existed || oldState != newState {
+			log.Printf("Service %s state changed: %v -> %v (docker state: %s, status: %s, health: %s)",
+				serviceName, oldState, newState, status.State, status.Status, status.Health)
+
+			if newState == ServiceStateError {
+				log.Printf("!!! Service %s entered ERROR state! State=%s, Status=%s, Health=%s",
+					serviceName, status.State, status.Status, status.Health)
+			}
+		}
+
+		states[serviceName] = newState
 	}
+
 	return states
 }
+
 func (m *MonitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -223,13 +256,15 @@ func (m *MonitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		log.Printf("Window resized: height=%d, viewHeight=%d", msg.Height, m.viewHeight)
 		m.adjustViewOffset()
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
 			if m.cleaning {
+				log.Println("Already cleaning, ignoring additional quit request")
 				return m, nil
 			}
-			log.Println("User pressed ctrl+c or q, stopping and cleaning up...")
+			log.Println("=== User pressed ctrl+c or q, stopping and cleaning up... ===")
 			m.cleaning = true
 			m.outputLines = append(m.outputLines, "")
 			m.outputLines = append(m.outputLines, "🧹 Stopping and cleaning up containers...")
@@ -239,7 +274,7 @@ func (m *MonitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return MonitorCompletedMsg{Error: err}
 				}
 				log.Println("Stop and cleanup successful")
-				return MonitorCompletedMsg{Error: nil}
+				return tea.Quit
 			}
 		case "l":
 			m.simpleView = !m.simpleView
@@ -276,13 +311,15 @@ func (m *MonitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				log.Printf("Jumped to bottom: offset=%d", m.viewOffset)
 			}
 		}
+
 	case DockerStateMsg:
 		for serviceName, state := range msg.States {
 			m.serviceStates[serviceName] = state
 		}
-		if !m.done && !m.cleaning {
+		if !m.cleaning {
 			return m, m.pollDockerState()
 		}
+
 	case OutputLineMsg:
 		m.outputLines = append(m.outputLines, msg.Line)
 		if len(m.outputLines) > m.maxLines {
@@ -290,52 +327,77 @@ func (m *MonitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.parseLogLine(msg.Line)
 		return m, m.waitForOutput()
+
 	case MonitorCompletedMsg:
-		log.Println("MonitorCompletedMsg received")
-		m.done = true
+		log.Println("=== MonitorCompletedMsg received ===")
+
+		m.composeExited = true
+
 		if msg.Error != nil {
-			log.Printf("Docker completed with error: %v", msg.Error)
+			log.Printf("Docker compose process exited with error: %v", msg.Error)
 			m.err = msg.Error
-			m.outputLines = append(m.outputLines, "")
-			m.outputLines = append(m.outputLines, fmt.Sprintf("❌ Error: %v", msg.Error))
+			log.Println("NOTE: Container errors don't mean the stack has failed. Check service states.")
 		} else {
-			log.Println("Docker completed successfully")
-			m.outputLines = append(m.outputLines, "")
-			m.outputLines = append(m.outputLines, "✅ Cleanup complete - Press any key to exit")
+			log.Println("Docker compose process exited normally")
 		}
+
 		if m.cleaning {
 			log.Println("Cleanup finished, quitting...")
 			return m, tea.Quit
 		}
+
+		m.outputLines = append(m.outputLines, "")
+		m.outputLines = append(m.outputLines, "Docker Compose process has exited. Services may still be running.")
+		m.outputLines = append(m.outputLines, "Check service states above. Press q or Ctrl+C to stop and cleanup.")
+
 		return m, nil
 	}
+
 	return m, nil
 }
+
 func (m *MonitorModel) parseLogLine(line string) {
 	lineLower := strings.ToLower(line)
+
 	if strings.Contains(line, "|") {
 		return
 	}
+
 	for _, serviceName := range m.selectedServices {
 		serviceNameLower := strings.ToLower(serviceName)
 		if !strings.Contains(lineLower, serviceNameLower) {
 			continue
 		}
+
+		oldState := m.serviceStates[serviceName]
+		var newState ServiceState
+
 		if strings.Contains(lineLower, "pulling") || strings.Contains(lineLower, "pull") {
-			m.serviceStates[serviceName] = ServiceStatePulling
+			newState = ServiceStatePulling
 		} else if strings.Contains(lineLower, "creating") {
-			m.serviceStates[serviceName] = ServiceStateCreating
+			newState = ServiceStateCreating
 		} else if strings.Contains(lineLower, "created") {
-			m.serviceStates[serviceName] = ServiceStateCreating
+			newState = ServiceStateCreating
 		} else if strings.Contains(lineLower, "starting") {
-			m.serviceStates[serviceName] = ServiceStateStarting
+			newState = ServiceStateStarting
 		} else if strings.Contains(lineLower, "started") {
-			m.serviceStates[serviceName] = ServiceStateRunning
+			newState = ServiceStateRunning
 		} else if strings.Contains(lineLower, "error") && !strings.Contains(line, "|") {
-			m.serviceStates[serviceName] = ServiceStateError
+			newState = ServiceStateError
+			log.Printf("!!! Service %s error detected in log: %s", serviceName, line)
+		} else {
+			continue
 		}
+
+		if oldState != newState {
+			log.Printf("Service %s state changed from log: %v -> %v (line: %.80s...)",
+				serviceName, oldState, newState, line)
+		}
+
+		m.serviceStates[serviceName] = newState
 	}
 }
+
 func (m *MonitorModel) adjustViewOffset() {
 	totalServices := len(m.selectedServices)
 	if m.viewOffset < 0 {
@@ -351,22 +413,28 @@ func (m *MonitorModel) adjustViewOffset() {
 	log.Printf("adjustViewOffset: offset=%d, height=%d, total=%d",
 		m.viewOffset, m.viewHeight, totalServices)
 }
+
 func (m *MonitorModel) View() string {
 	var s strings.Builder
-	s.WriteString(titleStyle.Render("🚀 Starting Carbonio..."))
+
+	s.WriteString(titleStyle.Render("🚀 Carbonio Services Monitor"))
 	s.WriteString("\n\n")
+
 	if m.simpleView {
 		s.WriteString(sectionStyle.Render("Services Status:"))
 		s.WriteString("\n")
+
 		sortedServices := make([]string, len(m.selectedServices))
 		copy(sortedServices, m.selectedServices)
 		sort.Strings(sortedServices)
+
 		totalServices := len(sortedServices)
 		startIdx := m.viewOffset
 		endIdx := m.viewOffset + m.viewHeight
 		if endIdx > totalServices {
 			endIdx = totalServices
 		}
+
 		for i := startIdx; i < endIdx; i++ {
 			serviceName := sortedServices[i]
 			state := m.serviceStates[serviceName]
@@ -374,6 +442,7 @@ func (m *MonitorModel) View() string {
 			styledState := state.Style().Render(stateStr)
 			s.WriteString(fmt.Sprintf("  %s %s\n", styledState, serviceName))
 		}
+
 		s.WriteString("\n")
 		s.WriteString(helpStyle.Render(fmt.Sprintf("Showing %d-%d of %d services", startIdx+1, endIdx, totalServices)))
 		s.WriteString("\n")
@@ -386,17 +455,13 @@ func (m *MonitorModel) View() string {
 		s.WriteString("\n")
 		s.WriteString(helpStyle.Render("l: toggle simple view"))
 	}
+
 	s.WriteString(" • ")
 	if m.cleaning {
 		s.WriteString(helpStyle.Render("Cleaning up... Please wait"))
-	} else if !m.done {
-		s.WriteString(helpStyle.Render("ctrl+c/q: stop and cleanup"))
 	} else {
-		if m.err != nil {
-			s.WriteString(helpStyle.Render("Press ctrl+c or q to exit"))
-		} else {
-			s.WriteString(helpStyle.Render("Press ctrl+c or q to stop and cleanup"))
-		}
+		s.WriteString(helpStyle.Render("q/ctrl+c: stop and cleanup"))
 	}
+
 	return s.String()
 }
