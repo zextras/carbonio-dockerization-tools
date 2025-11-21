@@ -93,13 +93,13 @@ func (m *MonitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c":
+		case "ctrl+c", "q":
 			if m.cleaning {
 				// Already cleaning, ignore
 				return m, nil
 			}
 
-			log.Println("User pressed ctrl+c, stopping and cleaning up...")
+			log.Println("User pressed ctrl+c or q, stopping and cleaning up...")
 			m.cleaning = true
 			m.outputLines = append(m.outputLines, "")
 			m.outputLines = append(m.outputLines, "🧹 Stopping and cleaning up containers...")
@@ -169,12 +169,12 @@ func (m *MonitorModel) View() string {
 	if m.cleaning {
 		s.WriteString(helpStyle.Render("Cleaning up... Please wait"))
 	} else if !m.done {
-		s.WriteString(helpStyle.Render("ctrl+c: stop and cleanup"))
+		s.WriteString(helpStyle.Render("ctrl+c/q: stop and cleanup"))
 	} else {
 		if m.err != nil {
-			s.WriteString(helpStyle.Render("Press ctrl+c to exit"))
+			s.WriteString(helpStyle.Render("Press ctrl+c or q to exit"))
 		} else {
-			s.WriteString(helpStyle.Render("Docker Compose is running. Press ctrl+c to stop and cleanup"))
+			s.WriteString(helpStyle.Render("Docker Compose is running. Press ctrl+c or q to stop and cleanup"))
 		}
 	}
 

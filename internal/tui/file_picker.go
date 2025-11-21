@@ -25,10 +25,10 @@ type FilePickerModel struct {
 
 // NewFilePickerModel creates a new file picker model
 func NewFilePickerModel() *FilePickerModel {
-	// Get starting directory (user's home or current directory)
-	startDir, err := os.UserHomeDir()
+	// Get starting directory (current directory or user's home as fallback)
+	startDir, err := os.Getwd()
 	if err != nil {
-		startDir, _ = os.Getwd()
+		startDir, _ = os.UserHomeDir()
 	}
 
 	fp := filepicker.New()
