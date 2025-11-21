@@ -138,25 +138,26 @@ services:
       retries: 10
       start_period: 20s
       timeout: 10s
-    command: [
-      "agent",
-      "-server",
-      "-bootstrap-expect=1",
-      "-ui",
-      "-client=0.0.0.0",
-      "-bind=0.0.0.0",
-      "-data-dir=/consul/data",
-      "-disable-host-node-id",
-      "-log-level=INFO",
-      "-node=consul-server",
-      "-hcl=disable_update_check = true"
-    ]
+    command:
+      [
+        "agent",
+        "-server",
+        "-bootstrap-expect=1",
+        "-ui",
+        "-client=0.0.0.0",
+        "-bind=0.0.0.0",
+        "-data-dir=/consul/data",
+        "-disable-host-node-id",
+        "-log-level=INFO",
+        "-node=consul-server",
+        "-hcl=disable_update_check = true",
+      ]
     volumes:
       - consul-data:/consul/data
 
   consul-register:
     image: alpine/curl
-    entrypoint: [ "/bin/sh", "-c", "/scripts/init.sh"]
+    entrypoint: ["/bin/sh", "-c", "/scripts/init.sh"]
     volumes:
       - ./consul:/scripts
     network_mode: "service:consul"
@@ -355,6 +356,10 @@ services:
         condition: service_healthy
       carbonio-postgres:
         condition: service_started
+      carbonio-storages:
+        condition: service_started
+      carbonio-user-management:
+        condition: service_started
     extra_hosts:
       - "localhost:host-gateway"
     labels:
@@ -459,6 +464,8 @@ services:
       consul:
         condition: service_healthy
       carbonio-postgres:
+        condition: service_started
+      carbonio-user-management:
         condition: service_started
     extra_hosts:
       - "localhost:host-gateway"
@@ -569,6 +576,10 @@ services:
         condition: service_healthy
       carbonio-message-dispatcher:
         condition: service_healthy
+      carbonio-storages:
+        condition: service_started
+      carbonio-user-management:
+        condition: service_started
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.carbonio-ws-collaboration.entrypoints=wsc"
