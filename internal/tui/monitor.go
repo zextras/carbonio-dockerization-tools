@@ -4,6 +4,7 @@ import (
 	"carbonio-docker-cli/internal/docker"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -39,7 +40,7 @@ const (
 func (s ServiceState) String() string {
 	switch s {
 	case ServiceStatePulling:
-		return "🔄 Pulling"
+		return "📄 Pulling"
 	case ServiceStateCreating:
 		return "🔨 Creating"
 	case ServiceStateStarting:
@@ -89,6 +90,10 @@ type MonitorModel struct {
 	simpleView       bool // Toggle between simple and detailed view
 	selectedServices []string
 	serviceStates    map[string]ServiceState
+
+	// Scrolling for simple view
+	viewOffset int
+	viewHeight int
 }
 
 // NewMonitorModel creates a new monitor model
@@ -111,6 +116,8 @@ func NewMonitorModel(executor *docker.Executor, envVars string, cmdParts []strin
 		simpleView:       true, // Start with simple view
 		selectedServices: selectedServices,
 		serviceStates:    states,
+		viewOffset:       0,
+		viewHeight:       20,
 	}
 }
 
@@ -152,6 +159,14 @@ func (m *MonitorModel) waitForOutput() tea.Cmd {
 
 func (m *MonitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.viewHeight = msg.Height - 10
+		if m.viewHeight < 5 {
+			m.viewHeight = 5
+		}
+		log.Printf("Window resized: height=%d, viewHeight=%d", msg.Height, m.viewHeight)
+		m.adjustViewOffset()
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
@@ -184,6 +199,41 @@ func (m *MonitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Toggle between simple and detailed view
 			m.simpleView = !m.simpleView
 			log.Printf("Toggled view: simpleView=%v", m.simpleView)
+
+		case "up", "k":
+			if m.simpleView && m.viewOffset > 0 {
+				m.viewOffset--
+				log.Printf("Scrolled up: offset=%d", m.viewOffset)
+			}
+
+		case "down", "j":
+			if m.simpleView {
+				totalServices := len(m.selectedServices)
+				maxOffset := totalServices - m.viewHeight
+				if maxOffset < 0 {
+					maxOffset = 0
+				}
+				if m.viewOffset < maxOffset {
+					m.viewOffset++
+					log.Printf("Scrolled down: offset=%d", m.viewOffset)
+				}
+			}
+
+		case "home", "g":
+			if m.simpleView {
+				m.viewOffset = 0
+				log.Println("Jumped to top")
+			}
+
+		case "end", "G":
+			if m.simpleView {
+				totalServices := len(m.selectedServices)
+				m.viewOffset = totalServices - m.viewHeight
+				if m.viewOffset < 0 {
+					m.viewOffset = 0
+				}
+				log.Printf("Jumped to bottom: offset=%d", m.viewOffset)
+			}
 		}
 
 	case OutputLineMsg:
@@ -234,23 +284,84 @@ func (m *MonitorModel) parseLogLine(line string) {
 			continue
 		}
 
-		// Detect state based on keywords
-		if strings.Contains(lineLower, "pulling") || strings.Contains(lineLower, "pull") {
-			m.serviceStates[serviceName] = ServiceStatePulling
-		} else if strings.Contains(lineLower, "creating") || strings.Contains(lineLower, "created") {
-			m.serviceStates[serviceName] = ServiceStateCreating
-		} else if strings.Contains(lineLower, "starting") || strings.Contains(lineLower, "started") {
-			m.serviceStates[serviceName] = ServiceStateStarting
-		} else if strings.Contains(lineLower, "error") || strings.Contains(lineLower, "failed") || strings.Contains(lineLower, "exited") {
-			m.serviceStates[serviceName] = ServiceStateError
-		} else if strings.Contains(line, "|") {
+		currentState := m.serviceStates[serviceName]
+
+		// Priorità agli stati: Running > Error > Starting > Creating > Pulling
+		// Non downgradiamo mai uno stato già "Running"
+		if currentState == ServiceStateRunning {
+			// Se è già Running, controlla solo per errori
+			if strings.Contains(lineLower, "error") || strings.Contains(lineLower, "failed") {
+				m.serviceStates[serviceName] = ServiceStateError
+			}
+			continue
+		}
+
+		// Detect state based on keywords with priority
+		// 1. Check for Running state first (highest priority)
+		if strings.Contains(line, "|") {
 			// Container is emitting logs (format: "service-1 | log message")
 			// This means it's running
 			m.serviceStates[serviceName] = ServiceStateRunning
-		} else if strings.Contains(lineLower, "running") || strings.Contains(lineLower, "healthy") {
+			continue
+		}
+		if strings.Contains(lineLower, "started") && !strings.Contains(lineLower, "starting") {
+			// "Started" without "starting" means it's now running
 			m.serviceStates[serviceName] = ServiceStateRunning
+			continue
+		}
+		if strings.Contains(lineLower, "running") || strings.Contains(lineLower, "healthy") {
+			m.serviceStates[serviceName] = ServiceStateRunning
+			continue
+		}
+
+		// 2. Check for Error state (second priority)
+		if strings.Contains(lineLower, "error") || strings.Contains(lineLower, "failed") {
+			m.serviceStates[serviceName] = ServiceStateError
+			continue
+		}
+
+		// 3. Check for intermediate states (only if not already in a higher state)
+		if currentState < ServiceStateStarting {
+			if strings.Contains(lineLower, "starting") {
+				m.serviceStates[serviceName] = ServiceStateStarting
+				continue
+			}
+		}
+
+		if currentState < ServiceStateCreating {
+			if strings.Contains(lineLower, "creating") || strings.Contains(lineLower, "created") {
+				m.serviceStates[serviceName] = ServiceStateCreating
+				continue
+			}
+		}
+
+		if currentState < ServiceStatePulling {
+			if strings.Contains(lineLower, "pulling") || strings.Contains(lineLower, "pull") {
+				m.serviceStates[serviceName] = ServiceStatePulling
+				continue
+			}
 		}
 	}
+}
+
+func (m *MonitorModel) adjustViewOffset() {
+	totalServices := len(m.selectedServices)
+
+	if m.viewOffset < 0 {
+		m.viewOffset = 0
+	}
+
+	maxOffset := totalServices - m.viewHeight
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+
+	if m.viewOffset > maxOffset {
+		m.viewOffset = maxOffset
+	}
+
+	log.Printf("adjustViewOffset: offset=%d, height=%d, total=%d",
+		m.viewOffset, m.viewHeight, totalServices)
 }
 
 func (m *MonitorModel) View() string {
@@ -260,11 +371,24 @@ func (m *MonitorModel) View() string {
 	s.WriteString("\n\n")
 
 	if m.simpleView {
-		// Simple view: show service states
+		// Simple view: show service states with scrolling
 		s.WriteString(sectionStyle.Render("Services Status:"))
 		s.WriteString("\n")
 
-		for _, serviceName := range m.selectedServices {
+		// Sort services alphabetically for consistent display
+		sortedServices := make([]string, len(m.selectedServices))
+		copy(sortedServices, m.selectedServices)
+		sort.Strings(sortedServices)
+
+		totalServices := len(sortedServices)
+		startIdx := m.viewOffset
+		endIdx := m.viewOffset + m.viewHeight
+		if endIdx > totalServices {
+			endIdx = totalServices
+		}
+
+		for i := startIdx; i < endIdx; i++ {
+			serviceName := sortedServices[i]
 			state := m.serviceStates[serviceName]
 			stateStr := state.String()
 			styledState := state.Style().Render(stateStr)
@@ -273,7 +397,9 @@ func (m *MonitorModel) View() string {
 		}
 
 		s.WriteString("\n")
-		s.WriteString(helpStyle.Render("l: toggle detailed logs"))
+		s.WriteString(helpStyle.Render(fmt.Sprintf("Showing %d-%d of %d services", startIdx+1, endIdx, totalServices)))
+		s.WriteString("\n")
+		s.WriteString(helpStyle.Render("↑/↓: scroll • g/G: top/bottom • l: toggle detailed logs"))
 	} else {
 		// Detailed view: show all logs
 		for _, line := range m.outputLines {

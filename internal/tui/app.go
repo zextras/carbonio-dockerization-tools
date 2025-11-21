@@ -140,13 +140,7 @@ func (a *App) runWithConfig(filePath string) error {
 	log.Printf("Command built successfully")
 
 	// Build visible services list from pending data
-	visibleServices := []string{}
-	for serviceName := range a.pendingBackend {
-		// Add only if not hidden (visible to user)
-		if !parser.GlobalDockerConfig.IsServiceHidden(serviceName) {
-			visibleServices = append(visibleServices, serviceName)
-		}
-	}
+	visibleServices := a.buildVisibleServicesList(a.pendingBackend)
 
 	// Start TUI with monitor screen directly
 	a.currentScreen = ScreenMonitor
@@ -158,6 +152,34 @@ func (a *App) runWithConfig(filePath string) error {
 	}
 
 	return nil
+}
+
+// buildVisibleServicesList creates a list of services to show in monitor
+// Includes auto-included services like carbonio-composed-ui but excludes hidden ones
+func (a *App) buildVisibleServicesList(backendServices map[string]string) []string {
+	visibleServices := []string{}
+
+	// Add all non-hidden backend services
+	for serviceName := range backendServices {
+		if !parser.GlobalDockerConfig.IsServiceHidden(serviceName) {
+			visibleServices = append(visibleServices, serviceName)
+		}
+	}
+
+	// Always add carbonio-composed-ui if not already present
+	// (it's auto-included but should be visible in logs)
+	hasComposedUI := false
+	for _, svc := range visibleServices {
+		if svc == "carbonio-composed-ui" {
+			hasComposedUI = true
+			break
+		}
+	}
+	if !hasComposedUI {
+		visibleServices = append(visibleServices, "carbonio-composed-ui")
+	}
+
+	return visibleServices
 }
 
 // Bubbletea Model interface implementation
@@ -377,14 +399,8 @@ func (a *App) handleExecute() (tea.Model, tea.Cmd) {
 	log.Printf("Env vars: %s", envVars)
 	log.Printf("Cmd parts: %v", cmdParts)
 
-	// Build visible services list from pending data
-	visibleServices := []string{}
-	for serviceName := range a.pendingBackend {
-		// Add only if not hidden (visible to user)
-		if !parser.GlobalDockerConfig.IsServiceHidden(serviceName) {
-			visibleServices = append(visibleServices, serviceName)
-		}
-	}
+	// Build visible services list
+	visibleServices := a.buildVisibleServicesList(a.pendingBackend)
 
 	log.Printf("Visible services for monitoring: %v", visibleServices)
 

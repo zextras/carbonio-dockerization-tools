@@ -49,9 +49,15 @@ func DefaultDockerConfig() *DockerConfig {
 			"advanced-registrator",
 			"address-book-registrator",
 			"auth-registrator",
+			// Consul registrator (sempre necessario per consul)
+			"consul-register",
 
 			// === SERVIZI AUTO-INCLUSI ===
-			"carbonio-composed-ui", // Proxy, sempre necessario
+			// NOTA: carbonio-composed-ui NON è più nascosto
+			// perché vogliamo mostrarlo nei log minimali
+
+			// === ONE-SHOT SERVICES (restart:no) ===
+			"carbonio-provisioner", // Si avvia, fa setup, e si spegne
 		},
 
 		// Servizi sempre obbligatori (non deselezionabili)
@@ -61,7 +67,6 @@ func DefaultDockerConfig() *DockerConfig {
 			"carbonio-postfix",
 			"carbonio-mariadb",
 			"consul",
-			"consul-register",
 			"traefik",
 			"memcached",
 		},
@@ -69,6 +74,8 @@ func DefaultDockerConfig() *DockerConfig {
 		// Servizi auto-inclusi (nascosti ma sempre aggiunti)
 		AutoIncludedServices: []string{
 			"carbonio-composed-ui", // Il proxy è sempre necessario
+			"consul-register",      // Registrator di consul, sempre necessario
+			"carbonio-provisioner", // One-shot service, sempre necessario
 		},
 
 		// Mappa registrator → servizio parent
@@ -90,6 +97,9 @@ func DefaultDockerConfig() *DockerConfig {
 			"advanced-registrator":     "carbonio-mailbox",
 			"address-book-registrator": "carbonio-mailbox",
 			"auth-registrator":         "carbonio-mailbox",
+
+			// Consul registrator
+			"consul-register": "consul",
 		},
 
 		// Tag values che bloccano l'editing
