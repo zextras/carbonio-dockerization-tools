@@ -289,20 +289,15 @@ func (m *MonitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.outputLines = append(m.outputLines, "")
 			m.outputLines = append(m.outputLines, "🧹 Stopping and cleaning up containers...")
 
-			// Stop and cleanup in a goroutine
-			go func() {
+			// Stop and cleanup and then quit
+			return m, func() tea.Msg {
 				if err := m.executor.StopAndCleanup(); err != nil {
 					log.Printf("Failed to stop and cleanup: %v", err)
-					m.err = err
-					m.outputLines = append(m.outputLines, fmt.Sprintf("Warning: Cleanup failed: %v", err))
-				} else {
-					log.Println("Stop and cleanup successful")
-					m.outputLines = append(m.outputLines, "✓ Cleanup complete")
+					return MonitorCompletedMsg{Error: err}
 				}
-				m.done = true
-			}()
-
-			return m, nil
+				log.Println("Stop and cleanup successful")
+				return MonitorCompletedMsg{Error: nil}
+			}
 
 		case "l":
 			// Toggle between simple and detailed view
@@ -383,8 +378,15 @@ func (m *MonitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			log.Println("Docker completed successfully")
 			// Add success message
 			m.outputLines = append(m.outputLines, "")
-			m.outputLines = append(m.outputLines, "✅ Docker Compose completed successfully")
+			m.outputLines = append(m.outputLines, "✅ Cleanup complete - Press any key to exit")
 		}
+
+		// If we're cleaning up (user initiated shutdown), quit immediately
+		if m.cleaning {
+			log.Println("Cleanup finished, quitting...")
+			return m, tea.Quit
+		}
+
 		return m, nil
 	}
 

@@ -31,10 +31,21 @@ func (e *Executor) CleanupExisting(edition string) error {
 }
 
 // CleanupAll runs docker compose down for BOTH CE and Advanced
-// to ensure complete cleanup regardless of what's running
+// and then runs docker system prune to clean up dangling resources
 func (e *Executor) CleanupAll() error {
+	return e.cleanupAllWithOutput(true)
+}
+
+// CleanupAllQuiet runs cleanup without showing output (for shutdown)
+func (e *Executor) CleanupAllQuiet() error {
+	return e.cleanupAllWithOutput(false)
+}
+
+// cleanupAllWithOutput performs cleanup with optional output display
+func (e *Executor) cleanupAllWithOutput(showOutput bool) error {
 	log.Println("Running complete cleanup (CE + Advanced)...")
 
+	// Step 1: Docker compose down
 	args := []string{
 		"compose",
 		"-f", "docker-compose.yaml",
@@ -45,14 +56,41 @@ func (e *Executor) CleanupAll() error {
 
 	cmd := exec.Command("docker", args...)
 	cmd.Dir = e.workDir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
 
-	if err := cmd.Run(); err != nil {
-		log.Printf("Cleanup command failed: %v", err)
-		return fmt.Errorf("cleanup failed: %w", err)
+	if showOutput {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
 	}
 
+	if err := cmd.Run(); err != nil {
+		log.Printf("Compose down failed: %v", err)
+		// Continue anyway to try prune
+	} else {
+		log.Println("Compose down completed")
+	}
+
+	// Step 2: Docker system prune
+	log.Println("Running docker system prune...")
+	pruneArgs := []string{
+		"system",
+		"prune",
+		"-f", // Force, no confirmation
+	}
+
+	pruneCmd := exec.Command("docker", pruneArgs...)
+	pruneCmd.Dir = e.workDir
+
+	if showOutput {
+		pruneCmd.Stdout = os.Stdout
+		pruneCmd.Stderr = os.Stderr
+	}
+
+	if err := pruneCmd.Run(); err != nil {
+		log.Printf("System prune failed: %v", err)
+		return fmt.Errorf("system prune failed: %w", err)
+	}
+
+	log.Println("System prune completed")
 	log.Println("Cleanup completed successfully")
 	return nil
 }
@@ -130,7 +168,7 @@ func (e *Executor) Stop() error {
 	return nil
 }
 
-// StopAndCleanup stops the running command and does cleanup
+// StopAndCleanup stops the running command and does cleanup (quietly)
 func (e *Executor) StopAndCleanup() error {
 	log.Println("Stopping and cleaning up...")
 
@@ -139,8 +177,8 @@ func (e *Executor) StopAndCleanup() error {
 		log.Printf("Failed to stop process: %v", err)
 	}
 
-	// Do full cleanup
-	return e.CleanupAll()
+	// Do full cleanup without output (to avoid UI clutter during shutdown)
+	return e.CleanupAllQuiet()
 }
 
 // parseEnvVars parses space-separated env vars "KEY=value KEY2=value2"

@@ -58,8 +58,8 @@ func NewApp(workDir, configFile string) *App {
 
 // Run starts the TUI application
 func (a *App) Run() error {
-	// Cleanup any existing containers first (CE + Advanced)
-	fmt.Println("🧹 Cleaning up existing containers...")
+	// Cleanup any existing containers first (CE + Advanced + system prune)
+	fmt.Println("🧹 Cleaning up existing containers and pruning system...")
 	if err := a.executor.CleanupAll(); err != nil {
 		log.Printf("Warning: cleanup failed: %v", err)
 	}
