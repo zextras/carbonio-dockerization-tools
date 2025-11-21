@@ -25,13 +25,13 @@ var (
 			Foreground(lipgloss.Color("#666666"))
 
 	requiredNameStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#666666")) // Grigio per nome required
+				Foreground(lipgloss.Color("#666666"))
 
 	requiredTagStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#FFFFFF")) // Bianco per tag required
+				Foreground(lipgloss.Color("#FFFFFF"))
 
 	lockedTagStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#666666")) // Grigio per tag locked
+			Foreground(lipgloss.Color("#666666"))
 
 	inputStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#7D56F4"))
@@ -45,13 +45,14 @@ type ServicesConfirmedMsg struct {
 
 // ServiceItem represents a selectable service
 type ServiceItem struct {
-	Name         string
+	ServiceName  string // Real service name (e.g., "consul-register")
+	ImageBase    string // Image without tag (e.g., "alpine/curl")
 	DefaultTag   string
 	CustomTag    string
 	Selected     bool
 	IsBackend    bool
-	IsRequired   bool // Se true, non può essere deselezionato
-	TagLocked    bool // Se true, il tag non può essere modificato (es: local builds)
+	IsRequired   bool
+	TagLocked    bool
 	Dependencies []string
 }
 
@@ -71,6 +72,26 @@ type ServicesModel struct {
 
 	viewOffset int // Scroll offset
 	viewHeight int // Visible items count
+
+	maxBackendNameLen  int // For alignment
+	maxFrontendNameLen int // For alignment
+}
+
+// extractImageBase removes the tag from an image URL
+// e.g., "registry.dev.zextras.com/dev/carbonio-mailbox:devel" -> "registry.dev.zextras.com/dev/carbonio-mailbox"
+func extractImageBase(imageURL string) string {
+	if imageURL == "" {
+		return ""
+	}
+
+	lastColon := strings.LastIndex(imageURL, ":")
+	lastSlash := strings.LastIndex(imageURL, "/")
+
+	if lastColon > lastSlash && lastColon != -1 {
+		return imageURL[:lastColon]
+	}
+
+	return imageURL
 }
 
 // NewServicesModel creates a new services model
@@ -90,7 +111,7 @@ func NewServicesModel(parsedConfig *parser.ParsedConfig, resolver *graph.Depende
 		viewHeight:   20,
 	}
 
-	// Create backend items - escludi SOLO i registrator (anche quelli local)
+	// Create backend items - ServiceName = nome servizio
 	var requiredBackend []*ServiceItem
 	var optionalBackend []*ServiceItem
 
@@ -103,29 +124,30 @@ func NewServicesModel(parsedConfig *parser.ParsedConfig, resolver *graph.Depende
 	for _, name := range backendNames {
 		svc := parsedConfig.BackendServices[name]
 
-		// NASCONDI i registrator dalla UI (sia normali che local)
+		// NASCONDI i registrator dalla UI
 		if svc.IsRegistrator {
-			log.Printf("Hiding registrator from UI: %s (will be auto-added based on parent service)", name)
+			log.Printf("Hiding registrator from UI: %s", name)
 			continue
 		}
 
-		// NASCONDI carbonio-composed-ui (sarà sempre incluso automaticamente)
+		// NASCONDI carbonio-composed-ui
 		if name == "carbonio-composed-ui" {
-			log.Printf("Hiding carbonio-composed-ui from UI (always required, always local)")
+			log.Printf("Hiding carbonio-composed-ui from UI")
 			continue
 		}
 
-		// Ora mostriamo anche i servizi con tag "local", ma lockiamo il tag
 		tagLocked := svc.DefaultTag == "local"
+		imageBase := extractImageBase(svc.DefaultImage)
 
-		// Usa DisplayName invece di Name per la visualizzazione
-		displayName := svc.DisplayName
-		if displayName == "" {
-			displayName = name // Fallback al nome del servizio
+		// FALLBACK: se non c'è immagine, usa il nome del servizio
+		if imageBase == "" {
+			imageBase = name
+			log.Printf("Backend service %s has no image, using service name as fallback", name)
 		}
 
 		item := &ServiceItem{
-			Name:         displayName, // USA IL DISPLAY NAME
+			ServiceName:  name,
+			ImageBase:    imageBase,
 			DefaultTag:   svc.DefaultTag,
 			CustomTag:    "",
 			Selected:     true,
@@ -135,20 +157,24 @@ func NewServicesModel(parsedConfig *parser.ParsedConfig, resolver *graph.Depende
 			Dependencies: svc.DependsOn,
 		}
 
-		// Separa required da optional
 		if item.IsRequired {
 			requiredBackend = append(requiredBackend, item)
 		} else {
 			optionalBackend = append(optionalBackend, item)
 		}
 
-		log.Printf("Backend item: %s (display=%s, tag=%s, required=%v, locked=%v)", name, displayName, svc.DefaultTag, svc.IsRequired, tagLocked)
+		// Track max name length for alignment
+		if len(name) > m.maxBackendNameLen {
+			m.maxBackendNameLen = len(name)
+		}
+
+		log.Printf("Backend item: service=%s, image=%s:%s, required=%v, locked=%v",
+			name, imageBase, svc.DefaultTag, svc.IsRequired, tagLocked)
 	}
 
-	// Combina: required prima, poi optional
 	m.backendItems = append(requiredBackend, optionalBackend...)
 
-	// Create frontend items - includi anche servizi con tag "local"
+	// Create frontend items - ServiceName = nome immagine
 	var requiredFrontend []*ServiceItem
 	var optionalFrontend []*ServiceItem
 
@@ -161,39 +187,46 @@ func NewServicesModel(parsedConfig *parser.ParsedConfig, resolver *graph.Depende
 	for _, name := range frontendNames {
 		ui := parsedConfig.FrontendImages[name]
 
-		// Mostriamo anche le UI con tag "local", ma lockiamo il tag
 		tagLocked := ui.DefaultTag == "local"
+		imageBase := extractImageBase(ui.DefaultImage)
 
 		item := &ServiceItem{
-			Name:       name,
-			DefaultTag: ui.DefaultTag,
-			CustomTag:  "",
-			Selected:   true,
-			IsBackend:  false,
-			IsRequired: ui.IsProxy,
-			TagLocked:  tagLocked,
+			ServiceName: name,
+			ImageBase:   imageBase,
+			DefaultTag:  ui.DefaultTag,
+			CustomTag:   "",
+			Selected:    true,
+			IsBackend:   false,
+			IsRequired:  ui.IsProxy,
+			TagLocked:   tagLocked,
 		}
 
-		// Separa required da optional
 		if item.IsRequired {
 			requiredFrontend = append(requiredFrontend, item)
 		} else {
 			optionalFrontend = append(optionalFrontend, item)
 		}
 
-		log.Printf("Frontend item: %s (tag=%s, proxy=%v, locked=%v)", name, ui.DefaultTag, ui.IsProxy, tagLocked)
+		// Track max name length for alignment
+		if len(name) > m.maxFrontendNameLen {
+			m.maxFrontendNameLen = len(name)
+		}
+
+		log.Printf("Frontend item: ui=%s, image=%s:%s, proxy=%v, locked=%v",
+			name, imageBase, ui.DefaultTag, ui.IsProxy, tagLocked)
 	}
 
-	// Combina: required prima, poi optional
 	m.frontendItems = append(requiredFrontend, optionalFrontend...)
 
-	log.Printf("Created model with %d backend items, %d frontend items (registrators hidden, auto-managed)", len(m.backendItems), len(m.frontendItems))
+	log.Printf("Created model with %d backend items, %d frontend items",
+		len(m.backendItems), len(m.frontendItems))
+	log.Printf("Max backend name length: %d, max frontend name length: %d",
+		m.maxBackendNameLen, m.maxFrontendNameLen)
 
 	return m
 }
 
 func (m *ServicesModel) Init() tea.Cmd {
-	// WindowSizeMsg will be sent automatically by bubbletea
 	return nil
 }
 
@@ -230,32 +263,26 @@ func (m *ServicesModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "home", "g":
-			// Vai all'inizio
 			m.cursor = 0
 			m.viewOffset = 0
 			log.Printf("Jump to start: cursor=0, offset=0")
 
 		case "end", "G":
-			// Vai alla fine
 			totalItems := len(m.backendItems) + len(m.frontendItems)
 			m.cursor = totalItems - 1
 			m.adjustViewOffset()
 			log.Printf("Jump to end: cursor=%d", m.cursor)
 
 		case " ":
-			// Toggle selection (solo se non required)
 			m.toggleSelection()
 
 		case "e":
-			// Edit tag (solo se non locked)
 			m.startTagEdit()
 
 		case "enter":
-			// Confirm and proceed
 			return m.confirm()
 
 		case "x":
-			// Export config
 			return m.exportConfig()
 		}
 	}
@@ -266,11 +293,9 @@ func (m *ServicesModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *ServicesModel) View() string {
 	var s strings.Builder
 
-	// HEADER FISSO - sempre in cima
 	s.WriteString(titleStyle.Render("🔧 Select Services and UI Images"))
 	s.WriteString("\n")
 
-	// Formatta edition name in modo carino
 	editionName := "CE (Community Edition)"
 	if m.edition == parser.EditionAdvanced {
 		editionName = "Advanced"
@@ -280,38 +305,32 @@ func (m *ServicesModel) View() string {
 
 	totalItems := len(m.backendItems) + len(m.frontendItems)
 
-	// Calculate visible range
 	startIdx := m.viewOffset
 	endIdx := m.viewOffset + m.viewHeight
 	if endIdx > totalItems {
 		endIdx = totalItems
 	}
 
-	// SEMPRE mostra il titolo Services
 	s.WriteString(sectionStyle.Render("Services:"))
 	s.WriteString("\n")
 
-	// Renderizza backend items visibili
 	for i := 0; i < len(m.backendItems); i++ {
 		if i >= startIdx && i < endIdx {
-			s.WriteString(m.renderItem(i, m.backendItems[i]))
+			s.WriteString(m.renderItem(i, m.backendItems[i], m.maxBackendNameLen))
 		}
 	}
 
-	// SEMPRE mostra il titolo Composed UI
 	s.WriteString("\n")
 	s.WriteString(sectionStyle.Render("Composed UI:"))
 	s.WriteString("\n")
 
-	// Renderizza frontend items visibili
 	for i := 0; i < len(m.frontendItems); i++ {
 		globalIndex := len(m.backendItems) + i
 		if globalIndex >= startIdx && globalIndex < endIdx {
-			s.WriteString(m.renderItem(globalIndex, m.frontendItems[i]))
+			s.WriteString(m.renderItem(globalIndex, m.frontendItems[i], m.maxFrontendNameLen))
 		}
 	}
 
-	// FOOTER FISSO
 	s.WriteString("\n")
 	if m.editingTag {
 		s.WriteString(helpStyle.Render("Editing tag: type to modify • enter: confirm • esc: cancel"))
@@ -319,65 +338,73 @@ func (m *ServicesModel) View() string {
 		s.WriteString(helpStyle.Render("↑/↓: navigate • g/G: top/bottom • space: toggle • e: edit tag • enter: start • x: export • q: quit"))
 	}
 
-	// Show position indicator
 	s.WriteString("\n")
 	s.WriteString(helpStyle.Render(fmt.Sprintf("Item %d/%d", m.cursor+1, totalItems)))
 
 	return s.String()
 }
 
-func (m *ServicesModel) renderItem(index int, item *ServiceItem) string {
+func (m *ServicesModel) renderItem(index int, item *ServiceItem, maxNameLen int) string {
 	cursor := " "
 	if m.cursor == index {
 		cursor = ">"
 	}
 
-	// Checkbox
 	checkbox := "[ ]"
 	if item.Selected {
 		checkbox = "[✓]"
 	}
-
-	// Se required, mostra con simbolo diverso
 	if item.IsRequired {
-		checkbox = "[●]" // Sempre selezionato, non modificabile
+		checkbox = "[●]"
 	}
 
-	// Tag display - NON mostrare "disabled" per UI deselezionate
+	// Get current tag
 	tag := item.DefaultTag
 	if item.CustomTag != "" {
 		tag = item.CustomTag
 	}
 
-	// Costruisci la linea in base allo stato
+	// Build full image display: "image-base:tag"
+	fullImageDisplay := fmt.Sprintf("%s:%s", item.ImageBase, tag)
+
+	padding := maxNameLen - len(item.ServiceName) + 2 // 2 spazi minimi
+
+	// Aggiungi tab extra: 1 per services, 2 per UI
+	if item.IsBackend {
+		padding += 10 // 1 tab extra per services
+	} else {
+		padding += 15 // 2 tab extra per UI
+	}
+
+	paddingStr := strings.Repeat(" ", padding)
+
+	// Build the line with alignment
 	var line string
 	if item.IsRequired {
-		// Required: nome grigio, tag bianco o grigio se locked
-		namePart := requiredNameStyle.Render(fmt.Sprintf("%s %s %s", cursor, checkbox, item.Name))
-		var tagPart string
+		// Required: nome grigio, immagine bianca o grigia se locked
+		namePart := requiredNameStyle.Render(fmt.Sprintf("%s %s %s", cursor, checkbox, item.ServiceName))
+		var imagePart string
 		if item.TagLocked {
-			tagPart = lockedTagStyle.Render(fmt.Sprintf("(%s)", tag))
+			imagePart = lockedTagStyle.Render(fmt.Sprintf("(%s)", fullImageDisplay))
 		} else {
-			tagPart = requiredTagStyle.Render(fmt.Sprintf("(%s)", tag))
+			imagePart = requiredTagStyle.Render(fmt.Sprintf("(%s)", fullImageDisplay))
 		}
-		line = namePart + " " + tagPart
+		line = namePart + paddingStr + imagePart
 	} else {
-		// Normale: tutto stesso colore, ma tag locked in grigio
+		// Normal: tutto stesso colore, ma tag locked in grigio
 		if item.TagLocked {
-			namePart := fmt.Sprintf("%s %s %s", cursor, checkbox, item.Name)
-			tagPart := lockedTagStyle.Render(fmt.Sprintf("(%s)", tag))
-			line = namePart + " " + tagPart
+			namePart := fmt.Sprintf("%s %s %s", cursor, checkbox, item.ServiceName)
+			imagePart := lockedTagStyle.Render(fmt.Sprintf("(%s)", fullImageDisplay))
+			line = namePart + paddingStr + imagePart
 		} else {
-			line = fmt.Sprintf("%s %s %s (%s)", cursor, checkbox, item.Name, tag)
+			line = fmt.Sprintf("%s %s %s%s(%s)", cursor, checkbox, item.ServiceName, paddingStr, fullImageDisplay)
 		}
 	}
 
-	// Se stiamo editando questo item
 	if m.editingTag && m.editingIndex == index {
 		return selectedStyle.Render(line) + " ← " + inputStyle.Render(m.editingBuffer) + "\n"
 	}
 
-	// Stile in base allo stato
 	if m.cursor == index {
 		return selectedStyle.Render(line) + "\n"
 	}
@@ -388,28 +415,24 @@ func (m *ServicesModel) renderItem(index int, item *ServiceItem) string {
 func (m *ServicesModel) toggleSelection() {
 	item := m.getCurrentItem()
 	if item == nil || item.IsRequired {
-		return // Non possiamo modificare i servizi required
+		return
 	}
 
 	item.Selected = !item.Selected
-	log.Printf("Toggled service %s: selected=%v", item.Name, item.Selected)
+	log.Printf("Toggled service %s: selected=%v", item.ServiceName, item.Selected)
 
-	// Se backend service, handle dependencies
 	if item.IsBackend && item.Selected {
 		m.autoSelectDependencies(item)
 	}
 }
 
 func (m *ServicesModel) autoSelectDependencies(item *ServiceItem) {
-	// Get all dependencies
-	deps := m.resolver.ResolveDependencies(item.Name)
+	deps := m.resolver.ResolveDependencies(item.ServiceName)
+	log.Printf("Auto-selecting dependencies for %s: %v", item.ServiceName, deps)
 
-	log.Printf("Auto-selecting dependencies for %s: %v", item.Name, deps)
-
-	// Auto-select all dependencies
 	for _, depName := range deps {
 		for _, backendItem := range m.backendItems {
-			if backendItem.Name == depName {
+			if backendItem.ServiceName == depName {
 				backendItem.Selected = true
 				log.Printf("  - Selected dependency: %s", depName)
 			}
@@ -420,8 +443,7 @@ func (m *ServicesModel) autoSelectDependencies(item *ServiceItem) {
 func (m *ServicesModel) startTagEdit() {
 	item := m.getCurrentItem()
 	if item == nil || item.TagLocked {
-		// Non permettere editing se il tag è locked (es: local builds)
-		log.Printf("Cannot edit tag for %s: tag is locked", item.Name)
+		log.Printf("Cannot edit tag for %s: tag is locked", item.ServiceName)
 		return
 	}
 
@@ -440,7 +462,6 @@ func (m *ServicesModel) handleTagEdit(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "enter":
-			// Confirm tag edit
 			item := m.getCurrentItem()
 			if item != nil && !item.TagLocked {
 				item.CustomTag = m.editingBuffer
@@ -450,7 +471,6 @@ func (m *ServicesModel) handleTagEdit(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.editingBuffer = ""
 
 		case "esc":
-			// Cancel tag edit
 			m.editingTag = false
 			m.editingIndex = -1
 			m.editingBuffer = ""
@@ -461,7 +481,6 @@ func (m *ServicesModel) handleTagEdit(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		default:
-			// Add character to buffer
 			if len(msg.String()) == 1 {
 				m.editingBuffer += msg.String()
 			}
@@ -479,42 +498,26 @@ func (m *ServicesModel) confirm() (tea.Model, tea.Cmd) {
 
 	log.Printf("Building backend selection from %d visible items", len(m.backendItems))
 
-	// Backend: include servizi selezionati + loro registrator
 	for _, item := range m.backendItems {
 		if item.Selected {
-			// Trova il servizio reale dal DisplayName
-			var realServiceName string
-			for name, svc := range m.parsedConfig.BackendServices {
-				if svc.DisplayName == item.Name || name == item.Name {
-					realServiceName = name
-					break
-				}
-			}
-
-			if realServiceName == "" {
-				log.Printf("Warning: could not find real service name for display name %s", item.Name)
-				continue
-			}
-
 			tag := item.DefaultTag
 			if item.CustomTag != "" && !item.TagLocked {
 				tag = item.CustomTag
 			}
-			backend[realServiceName] = tag
-			log.Printf("  Backend: %s -> %s", realServiceName, tag)
+			backend[item.ServiceName] = tag
+			log.Printf("  Backend: %s -> %s", item.ServiceName, tag)
 
-			// Auto-includi TUTTI i registrator per questo servizio (usando la mappa)
-			registrators := parser.GetRegistratorsForService(realServiceName)
+			registrators := parser.GetRegistratorsForService(item.ServiceName)
 			for _, regName := range registrators {
 				if regSvc, exists := m.parsedConfig.BackendServices[regName]; exists {
 					backend[regName] = regSvc.DefaultTag
-					log.Printf("  Auto-added registrator: %s -> %s (for %s)", regName, regSvc.DefaultTag, realServiceName)
+					log.Printf("  Auto-added registrator: %s -> %s (for %s)",
+						regName, regSvc.DefaultTag, item.ServiceName)
 				}
 			}
 		}
 	}
 
-	// SEMPRE includi carbonio-composed-ui
 	if composedUI, exists := m.parsedConfig.BackendServices["carbonio-composed-ui"]; exists {
 		backend["carbonio-composed-ui"] = composedUI.DefaultTag
 		log.Printf("  Auto-added carbonio-composed-ui: local")
@@ -522,23 +525,22 @@ func (m *ServicesModel) confirm() (tea.Model, tea.Cmd) {
 
 	log.Printf("Building frontend selection from %d visible items", len(m.frontendItems))
 
-	// Frontend: TUTTI devono essere presenti
 	for _, item := range m.frontendItems {
 		tag := item.DefaultTag
 		if item.CustomTag != "" && !item.TagLocked {
 			tag = item.CustomTag
 		}
 
-		// Se non selezionato, usa "disabled" per docker ma NON nel display
 		if !item.Selected {
 			tag = "disabled"
 		}
 
-		frontend[item.Name] = tag
-		log.Printf("  Frontend: %s -> %s", item.Name, tag)
+		frontend[item.ServiceName] = tag
+		log.Printf("  Frontend: %s -> %s", item.ServiceName, tag)
 	}
 
-	log.Printf("Sending confirmation message with %d backend, %d frontend", len(backend), len(frontend))
+	log.Printf("Sending confirmation message with %d backend, %d frontend",
+		len(backend), len(frontend))
 
 	return m, func() tea.Msg {
 		return ServicesConfirmedMsg{
@@ -552,30 +554,15 @@ func (m *ServicesModel) exportConfig() (tea.Model, tea.Cmd) {
 	backend := make(map[string]string)
 	frontend := make(map[string]string)
 
-	// Backend: servizi selezionati + loro registrator
 	for _, item := range m.backendItems {
 		if item.Selected {
-			// Trova il servizio reale dal DisplayName
-			var realServiceName string
-			for name, svc := range m.parsedConfig.BackendServices {
-				if svc.DisplayName == item.Name || name == item.Name {
-					realServiceName = name
-					break
-				}
-			}
-
-			if realServiceName == "" {
-				continue
-			}
-
 			tag := item.DefaultTag
 			if item.CustomTag != "" && !item.TagLocked {
 				tag = item.CustomTag
 			}
-			backend[realServiceName] = tag
+			backend[item.ServiceName] = tag
 
-			// Auto-includi tutti i registrator per questo servizio
-			registrators := parser.GetRegistratorsForService(realServiceName)
+			registrators := parser.GetRegistratorsForService(item.ServiceName)
 			for _, regName := range registrators {
 				if regSvc, exists := m.parsedConfig.BackendServices[regName]; exists {
 					backend[regName] = regSvc.DefaultTag
@@ -584,12 +571,10 @@ func (m *ServicesModel) exportConfig() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Aggiungi carbonio-composed-ui
 	if composedUI, exists := m.parsedConfig.BackendServices["carbonio-composed-ui"]; exists {
 		backend["carbonio-composed-ui"] = composedUI.DefaultTag
 	}
 
-	// Frontend: TUTTI devono essere presenti
 	for _, item := range m.frontendItems {
 		tag := item.DefaultTag
 		if item.CustomTag != "" && !item.TagLocked {
@@ -600,16 +585,13 @@ func (m *ServicesModel) exportConfig() (tea.Model, tea.Cmd) {
 			tag = "disabled"
 		}
 
-		frontend[item.Name] = tag
+		frontend[item.ServiceName] = tag
 	}
 
-	// Create config
 	userConfig := config.CreateUserConfig(string(m.edition), backend, frontend)
 
-	// Export to file
 	filename := "carbonio-config.yaml"
 	if err := config.ExportConfig(filename, userConfig); err != nil {
-		// TODO: Show error
 		return m, nil
 	}
 
@@ -633,12 +615,11 @@ func (m *ServicesModel) getCurrentItem() *ServiceItem {
 
 func (m *ServicesModel) adjustViewOffset() {
 	if m.viewHeight <= 0 {
-		m.viewHeight = 20 // Default if not set
+		m.viewHeight = 20
 	}
 
 	totalItems := len(m.backendItems) + len(m.frontendItems)
 
-	// Ensure cursor is within bounds
 	if m.cursor < 0 {
 		m.cursor = 0
 	}
@@ -646,7 +627,6 @@ func (m *ServicesModel) adjustViewOffset() {
 		m.cursor = totalItems - 1
 	}
 
-	// Adjust viewOffset to keep cursor visible
 	if m.cursor < m.viewOffset {
 		m.viewOffset = m.cursor
 	}
@@ -654,7 +634,6 @@ func (m *ServicesModel) adjustViewOffset() {
 		m.viewOffset = m.cursor - m.viewHeight + 1
 	}
 
-	// Ensure viewOffset is within bounds
 	if m.viewOffset < 0 {
 		m.viewOffset = 0
 	}
