@@ -52,10 +52,6 @@ func DefaultDockerConfig() *DockerConfig {
 			// Consul registrator (sempre necessario per consul)
 			"consul-register",
 
-			// === SERVIZI AUTO-INCLUSI ===
-			// NOTA: carbonio-composed-ui NON è più nascosto
-			// perché vogliamo mostrarlo nei log minimali
-
 			// === ONE-SHOT SERVICES (restart:no) ===
 			"carbonio-provisioner", // Si avvia, fa setup, e si spegne
 		},
@@ -66,6 +62,8 @@ func DefaultDockerConfig() *DockerConfig {
 			"carbonio-openldap",
 			"carbonio-postfix",
 			"carbonio-mariadb",
+			"carbonio-catalog",     // Catalog sempre necessario
+			"carbonio-composed-ui", // Proxy e UI sempre necessari
 			"consul",
 			"traefik",
 			"memcached",
@@ -73,7 +71,6 @@ func DefaultDockerConfig() *DockerConfig {
 
 		// Servizi auto-inclusi (nascosti ma sempre aggiunti)
 		AutoIncludedServices: []string{
-			"carbonio-composed-ui", // Il proxy è sempre necessario
 			"consul-register",      // Registrator di consul, sempre necessario
 			"carbonio-provisioner", // One-shot service, sempre necessario
 		},
@@ -109,7 +106,7 @@ func DefaultDockerConfig() *DockerConfig {
 
 		// Servizi con tag sempre bloccato (per override espliciti)
 		ForcedLockedTagServices: []string{
-			// Aggiungi qui servizi specifici se necessario
+			"carbonio-composed-ui", // Tag non modificabile (build locale)
 		},
 
 		// UI con tag sempre bloccato (per override espliciti)

@@ -155,7 +155,7 @@ func (a *App) runWithConfig(filePath string) error {
 }
 
 // buildVisibleServicesList creates a list of services to show in monitor
-// Includes auto-included services like carbonio-composed-ui but excludes hidden ones
+// Excludes only hidden services (registrators, provisioner, etc.)
 func (a *App) buildVisibleServicesList(backendServices map[string]string) []string {
 	visibleServices := []string{}
 
@@ -164,19 +164,6 @@ func (a *App) buildVisibleServicesList(backendServices map[string]string) []stri
 		if !parser.GlobalDockerConfig.IsServiceHidden(serviceName) {
 			visibleServices = append(visibleServices, serviceName)
 		}
-	}
-
-	// Always add carbonio-composed-ui if not already present
-	// (it's auto-included but should be visible in logs)
-	hasComposedUI := false
-	for _, svc := range visibleServices {
-		if svc == "carbonio-composed-ui" {
-			hasComposedUI = true
-			break
-		}
-	}
-	if !hasComposedUI {
-		visibleServices = append(visibleServices, "carbonio-composed-ui")
 	}
 
 	return visibleServices

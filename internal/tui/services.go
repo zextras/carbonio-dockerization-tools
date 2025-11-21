@@ -521,20 +521,11 @@ func (m *ServicesModel) confirm() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Auto-includi servizi da AutoIncludedServices
+	// Auto-includi servizi da AutoIncludedServices (sono tutti nascosti)
 	for _, autoIncludedName := range parser.GlobalDockerConfig.AutoIncludedServices {
 		if autoIncludedSvc, exists := m.parsedConfig.BackendServices[autoIncludedName]; exists {
 			backend[autoIncludedName] = autoIncludedSvc.DefaultTag
-
-			// Add to visible list only if not hidden
-			// carbonio-composed-ui should be visible, others (provisioner, consul-register) should not
-			if !parser.GlobalDockerConfig.IsServiceHidden(autoIncludedName) {
-				visibleServices = append(visibleServices, autoIncludedName)
-			}
-
-			log.Printf("  Auto-added service: %s -> %s (hidden=%v)",
-				autoIncludedName, autoIncludedSvc.DefaultTag,
-				parser.GlobalDockerConfig.IsServiceHidden(autoIncludedName))
+			log.Printf("  Auto-added hidden service: %s -> %s", autoIncludedName, autoIncludedSvc.DefaultTag)
 		}
 	}
 
@@ -588,7 +579,7 @@ func (m *ServicesModel) exportConfig() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Auto-includi servizi da AutoIncludedServices
+	// Auto-includi servizi da AutoIncludedServices (sono tutti nascosti)
 	for _, autoIncludedName := range parser.GlobalDockerConfig.AutoIncludedServices {
 		if autoIncludedSvc, exists := m.parsedConfig.BackendServices[autoIncludedName]; exists {
 			backend[autoIncludedName] = autoIncludedSvc.DefaultTag
