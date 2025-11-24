@@ -1,7 +1,7 @@
 #!/bin/bash
 
 export COMPOSE_FILE="docker-compose.yaml"
-ALL_SERVICES=(carbonio-composed-ui carbonio-provisioner consul-register carbonio-preview preview-registrator)
+ALL_SERVICES=(event-listener carbonio-composed-ui carbonio-provisioner consul-register carbonio-preview)
 if [[ "$1" == "--advanced" ]]; then
     export COMPOSE_FILE="docker-compose.yaml:docker-compose-advanced.yaml"
     shift

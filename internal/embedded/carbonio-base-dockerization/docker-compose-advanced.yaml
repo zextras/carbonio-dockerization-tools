@@ -1,40 +1,20 @@
 name: carbonio
-x-registrator-template: &registrator-template
-  build:
-    context: ./registrator
-  depends_on:
-    consul:
-      condition: service_healthy
 
 services:
-  advanced-registrator:
-    <<: *registrator-template
-    environment:
-      - SERVICE_NAME=carbonio-advanced
-      - SERVICE_PORT=8742
-    network_mode: "service:carbonio-mailbox"
-
-  address-book-registrator:
-    <<: *registrator-template
-    environment:
-      - SERVICE_NAME=carbonio-address-book
-      - SERVICE_PORT=8388
-    network_mode: "service:carbonio-mailbox"
-
-  auth-registrator:
-    <<: *registrator-template
-    environment:
-      - SERVICE_NAME=carbonio-auth
-      - SERVICE_PORT=8742
-    network_mode: "service:carbonio-mailbox"
 
   carbonio-mailbox:
+    pre_stop:
+      - command: /bin/sh -c ". /usr/bin/register-service.sh && unregister"
+    post_start:
+      - command: /bin/sh -c ". /usr/bin/register-service.sh && register"
     image: ${CARBONIO_ADVANCED_IMAGE:-registry.dev.zextras.com/dev/carbonio-advanced:devel}
     depends_on:
       carbonio-postgres:
         condition: service_started
       consul:
         condition: service_healthy
+    volumes:
+      - ./advanced/register-service.sh:/usr/bin/register-service.sh
 
   carbonio-postgres:
     volumes:

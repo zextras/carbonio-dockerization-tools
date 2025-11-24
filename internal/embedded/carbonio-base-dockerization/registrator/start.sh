@@ -1,5 +1,6 @@
 
-SERVICE_IP=$(hostname -i)
+SERVICE_IP=${SERVICE_IP:-${SERVICE_NAME}}
+SERVICE_ID=${SERVICE_ID:-${SERVICE_NAME}}
 SERVICE_CHECK_TYPE="${SERVICE_CHECK_TYPE:-tcp}"
 
 if [ "$SERVICE_CHECK_TYPE" = "http" ]; then
@@ -11,9 +12,14 @@ fi
 # Build JSON
 SERVICE_JSON=$(cat <<EOF
 {
+  "id": "$SERVICE_ID",
   "name": "$SERVICE_NAME",
   "address": "$SERVICE_IP",
   "port": $SERVICE_PORT,
+  "tags": ["traefik.enable=true",
+          "traefik.http.routers.${SERVICE_NAME}.entrypoints=${SERVICE_NAME}",
+          "traefik.http.routers.${SERVICE_NAME}.rule=PathPrefix(\"/\")",
+          "traefik.http.services.${SERVICE_NAME}.loadbalancer.server.port=${SERVICE_PORT}"],
   "check": {
         "$SERVICE_CHECK_TYPE": "$SERVICE_CHECK",
         "interval": "10s",
