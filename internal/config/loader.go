@@ -32,19 +32,9 @@ func LoadConfig(filePath string, parsedConfig *parser.ParsedConfig) (*UserConfig
 			return nil, fmt.Errorf("frontend UI '%s' has empty tag", uiName)
 		}
 	}
-	for serviceName := range parsedConfig.BackendServices {
-		if _, exists := config.Carbonio.Backend[serviceName]; !exists {
-			return nil, fmt.Errorf("backend service '%s' found in docker-compose but missing from config file (config is incomplete)", serviceName)
-		}
-	}
-	for uiName := range parsedConfig.FrontendImages {
-		if _, exists := config.Carbonio.Frontend[uiName]; !exists {
-			return nil, fmt.Errorf("frontend UI '%s' found in Dockerfile but missing from config file (config is incomplete)", uiName)
-		}
-	}
-	for _, serviceName := range parser.GlobalDockerConfig.RequiredServices {
-		if _, exists := parsedConfig.BackendServices[serviceName]; exists {
-			if _, configured := config.Carbonio.Backend[serviceName]; !configured {
+	for serviceName, svc := range parsedConfig.BackendServices {
+		if svc.IsRequired {
+			if _, exists := config.Carbonio.Backend[serviceName]; !exists {
 				return nil, fmt.Errorf("required service '%s' is missing from config file", serviceName)
 			}
 		}
