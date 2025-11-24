@@ -2,6 +2,7 @@ package tui
 
 import (
 	"carbonio-docker-cli/internal/docker"
+	"carbonio-docker-cli/internal/provisioner"
 	"encoding/json"
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
@@ -22,6 +23,8 @@ var (
 				Foreground(lipgloss.Color("#FFA500"))
 	serviceErrorStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#FF0000"))
+	accountStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#7D56F4"))
 )
 
 type ServiceState int
@@ -38,7 +41,7 @@ const (
 func (s ServiceState) String() string {
 	switch s {
 	case ServiceStatePulling:
-		return "📄 Pulling"
+		return "🔄 Pulling"
 	case ServiceStateCreating:
 		return "🔨 Creating"
 	case ServiceStateStarting:
@@ -91,6 +94,7 @@ type MonitorModel struct {
 	serviceStates    map[string]ServiceState
 	viewOffset       int
 	viewHeight       int
+	accounts         []provisioner.Account
 }
 
 type DockerComposeStatus struct {
@@ -106,6 +110,13 @@ func NewMonitorModel(executor *docker.Executor, envVars string, cmdParts []strin
 	for _, svc := range selectedServices {
 		states[svc] = ServiceStateUnknown
 	}
+
+	accounts, err := provisioner.ParseProvisioningScript(workDir)
+	if err != nil {
+		log.Printf("Warning: failed to parse provisioning script: %v", err)
+		accounts = []provisioner.Account{}
+	}
+
 	return &MonitorModel{
 		executor:         executor,
 		envVars:          envVars,
@@ -121,6 +132,7 @@ func NewMonitorModel(executor *docker.Executor, envVars string, cmdParts []strin
 		serviceStates:    states,
 		viewOffset:       0,
 		viewHeight:       20,
+		accounts:         accounts,
 	}
 }
 
@@ -419,6 +431,21 @@ func (m *MonitorModel) View() string {
 
 	s.WriteString(titleStyle.Render("🚀 Carbonio Services Monitor"))
 	s.WriteString("\n\n")
+
+	if len(m.accounts) > 0 {
+		s.WriteString(sectionStyle.Render("📋 Available Accounts:"))
+		s.WriteString("\n")
+		for _, acc := range m.accounts {
+			adminBadge := ""
+			if acc.IsAdmin {
+				adminBadge = " [ADMIN]"
+			}
+			accountLine := fmt.Sprintf("  • %s / %s%s", acc.Username, acc.Password, adminBadge)
+			s.WriteString(accountStyle.Render(accountLine))
+			s.WriteString("\n")
+		}
+		s.WriteString("\n")
+	}
 
 	if m.simpleView {
 		s.WriteString(sectionStyle.Render("Services Status:"))

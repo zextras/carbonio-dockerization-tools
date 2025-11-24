@@ -35,6 +35,7 @@ type ServicesConfirmedMsg struct {
 	Frontend        map[string]string
 	VisibleServices []string
 }
+
 type ServiceItem struct {
 	ServiceName  string
 	ImageBase    string
@@ -46,6 +47,7 @@ type ServiceItem struct {
 	TagLocked    bool
 	Dependencies []string
 }
+
 type ServicesModel struct {
 	parsedConfig       *parser.ParsedConfig
 	resolver           *graph.DependencyResolver
@@ -73,6 +75,7 @@ func extractImageBase(imageURL string) string {
 	}
 	return imageURL
 }
+
 func NewServicesModel(parsedConfig *parser.ParsedConfig, resolver *graph.DependencyResolver, edition parser.Edition) *ServicesModel {
 	log.Println("=== Creating ServicesModel ===")
 	log.Printf("Backend services: %d", len(parsedConfig.BackendServices))
@@ -168,9 +171,11 @@ func NewServicesModel(parsedConfig *parser.ParsedConfig, resolver *graph.Depende
 		m.maxBackendNameLen, m.maxFrontendNameLen)
 	return m
 }
+
 func (m *ServicesModel) Init() tea.Cmd {
 	return nil
 }
+
 func (m *ServicesModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.editingTag {
 		return m.handleTagEdit(msg)
@@ -219,6 +224,7 @@ func (m *ServicesModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
+
 func (m *ServicesModel) View() string {
 	var s strings.Builder
 	s.WriteString(titleStyle.Render("🔧 Select Services and UI Images"))
@@ -261,6 +267,7 @@ func (m *ServicesModel) View() string {
 	s.WriteString(helpStyle.Render(fmt.Sprintf("Item %d/%d", m.cursor+1, totalItems)))
 	return s.String()
 }
+
 func (m *ServicesModel) renderItem(index int, item *ServiceItem, maxNameLen int) string {
 	cursor := " "
 	if m.cursor == index {
@@ -312,6 +319,7 @@ func (m *ServicesModel) renderItem(index int, item *ServiceItem, maxNameLen int)
 	}
 	return checkboxStyle.Render(line) + "\n"
 }
+
 func (m *ServicesModel) toggleSelection() {
 	item := m.getCurrentItem()
 	if item == nil || item.IsRequired {
@@ -323,6 +331,7 @@ func (m *ServicesModel) toggleSelection() {
 		m.autoSelectDependencies(item)
 	}
 }
+
 func (m *ServicesModel) autoSelectDependencies(item *ServiceItem) {
 	deps := m.resolver.ResolveDependencies(item.ServiceName)
 	log.Printf("Auto-selecting dependencies for %s: %v", item.ServiceName, deps)
@@ -335,6 +344,7 @@ func (m *ServicesModel) autoSelectDependencies(item *ServiceItem) {
 		}
 	}
 }
+
 func (m *ServicesModel) startTagEdit() {
 	item := m.getCurrentItem()
 	if item == nil || item.TagLocked {
@@ -349,6 +359,7 @@ func (m *ServicesModel) startTagEdit() {
 		m.editingBuffer = item.DefaultTag
 	}
 }
+
 func (m *ServicesModel) handleTagEdit(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -377,6 +388,7 @@ func (m *ServicesModel) handleTagEdit(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
+
 func (m *ServicesModel) confirm() (tea.Model, tea.Cmd) {
 	log.Println("=== Confirm called ===")
 	backend := make(map[string]string)
@@ -392,20 +404,12 @@ func (m *ServicesModel) confirm() (tea.Model, tea.Cmd) {
 			backend[item.ServiceName] = tag
 			visibleServices = append(visibleServices, item.ServiceName)
 			log.Printf("  Backend: %s -> %s", item.ServiceName, tag)
-			registrators := parser.GlobalDockerConfig.GetRegistratorsForService(item.ServiceName)
-			for _, regName := range registrators {
-				if regSvc, exists := m.parsedConfig.BackendServices[regName]; exists {
-					backend[regName] = regSvc.DefaultTag
-					log.Printf("  Auto-added registrator: %s -> %s (for %s)",
-						regName, regSvc.DefaultTag, item.ServiceName)
-				}
-			}
 		}
 	}
 	for _, autoIncludedName := range parser.GlobalDockerConfig.AutoIncludedServices {
 		if autoIncludedSvc, exists := m.parsedConfig.BackendServices[autoIncludedName]; exists {
 			backend[autoIncludedName] = autoIncludedSvc.DefaultTag
-			log.Printf("  Auto-added hidden service: %s -> %s", autoIncludedName, autoIncludedSvc.DefaultTag)
+			log.Printf("  Auto-added service: %s -> %s", autoIncludedName, autoIncludedSvc.DefaultTag)
 		}
 	}
 	log.Printf("Building frontend selection from %d visible items", len(m.frontendItems))
@@ -430,6 +434,7 @@ func (m *ServicesModel) confirm() (tea.Model, tea.Cmd) {
 		}
 	}
 }
+
 func (m *ServicesModel) exportConfig() (tea.Model, tea.Cmd) {
 	backend := make(map[string]string)
 	frontend := make(map[string]string)
@@ -440,12 +445,6 @@ func (m *ServicesModel) exportConfig() (tea.Model, tea.Cmd) {
 				tag = item.CustomTag
 			}
 			backend[item.ServiceName] = tag
-			registrators := parser.GlobalDockerConfig.GetRegistratorsForService(item.ServiceName)
-			for _, regName := range registrators {
-				if regSvc, exists := m.parsedConfig.BackendServices[regName]; exists {
-					backend[regName] = regSvc.DefaultTag
-				}
-			}
 		}
 	}
 	for _, autoIncludedName := range parser.GlobalDockerConfig.AutoIncludedServices {
@@ -471,6 +470,7 @@ func (m *ServicesModel) exportConfig() (tea.Model, tea.Cmd) {
 	fmt.Printf("\n✓ Configuration exported to %s\n", filename)
 	return m, nil
 }
+
 func (m *ServicesModel) getCurrentItem() *ServiceItem {
 	if m.cursor < len(m.backendItems) {
 		return m.backendItems[m.cursor]
@@ -481,6 +481,7 @@ func (m *ServicesModel) getCurrentItem() *ServiceItem {
 	}
 	return nil
 }
+
 func (m *ServicesModel) adjustViewOffset() {
 	if m.viewHeight <= 0 {
 		m.viewHeight = 20

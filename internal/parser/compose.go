@@ -10,12 +10,14 @@ import (
 type ComposeFile struct {
 	Services map[string]Service `yaml:"services"`
 }
+
 type Service struct {
 	Image     string       `yaml:"image"`
 	Restart   string       `yaml:"restart"`
 	DependsOn interface{}  `yaml:"depends_on"`
 	Build     *BuildConfig `yaml:"build"`
 }
+
 type BuildConfig struct {
 	Context    string            `yaml:"context"`
 	Dockerfile string            `yaml:"dockerfile"`
@@ -35,11 +37,9 @@ func ParseComposeFile(data []byte, edition Edition) (map[string]*ServiceDefiniti
 			continue
 		}
 		def := &ServiceDefinition{
-			Name:          name,
-			Available:     []string{string(edition)},
-			IsRequired:    IsServiceRequired(name),
-			IsRegistrator: IsRegistrator(name),
-			ParentService: GetParentServiceFromMap(name),
+			Name:       name,
+			Available:  []string{string(edition)},
+			IsRequired: IsServiceRequired(name),
 		}
 		if strings.Contains(svc.Image, "${") {
 			envVar, defaultImg := extractEnvVar(svc.Image)
@@ -67,6 +67,7 @@ func ParseComposeFile(data []byte, edition Edition) (map[string]*ServiceDefiniti
 	log.Printf("Parsed %d services from compose", len(services))
 	return services, nil
 }
+
 func extractEnvVar(imageStr string) (envVar, defaultImage string) {
 	imageStr = strings.TrimPrefix(imageStr, "${")
 	imageStr = strings.TrimSuffix(imageStr, "}")
@@ -83,6 +84,7 @@ func extractEnvVar(imageStr string) (envVar, defaultImage string) {
 	}
 	return imageStr, ""
 }
+
 func extractTag(imageURL string) string {
 	if imageURL == "" {
 		return "latest"
@@ -97,6 +99,7 @@ func extractTag(imageURL string) string {
 	log.Printf("No tag found in image '%s', defaulting to 'latest'", imageURL)
 	return "latest"
 }
+
 func extractImageName(imageURL string) string {
 	if imageURL == "" {
 		return ""
@@ -113,6 +116,7 @@ func extractImageName(imageURL string) string {
 	}
 	return imageURL
 }
+
 func extractDependencies(dependsOn interface{}) []string {
 	if dependsOn == nil {
 		return []string{}
@@ -136,6 +140,7 @@ func extractDependencies(dependsOn interface{}) []string {
 		return []string{}
 	}
 }
+
 func ParseUIImagesFromCompose(data []byte) (map[string]*UIImageDefinition, error) {
 	log.Println("Parsing UI images from compose build args...")
 	var compose ComposeFile
@@ -179,6 +184,7 @@ func ParseUIImagesFromCompose(data []byte) (map[string]*UIImageDefinition, error
 	}
 	return uiImages, nil
 }
+
 func extractUIName(envVar string) string {
 	name := strings.TrimSuffix(envVar, "_IMAGE")
 	name = strings.ToLower(name)

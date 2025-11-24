@@ -4,7 +4,6 @@ type DockerConfig struct {
 	HiddenServices          []string
 	RequiredServices        []string
 	AutoIncludedServices    []string
-	RegistratorToService    map[string]string
 	LockedTagValues         []string
 	ForcedLockedTagServices []string
 	ForcedLockedTagUIs      []string
@@ -13,20 +12,7 @@ type DockerConfig struct {
 func DefaultDockerConfig() *DockerConfig {
 	return &DockerConfig{
 		HiddenServices: []string{
-			"mailbox-registrator",
-			"user-management-registrator",
-			"catalog-registrator",
-			"storages-registrator",
-			"docs-connector-registrator",
-			"docs-editor-registrator",
-			"preview-registrator",
-			"files-registrator",
-			"tasks-registrator",
-			"message-dispatcher-registrator",
-			"wsc-registrator",
-			"advanced-registrator",
-			"address-book-registrator",
-			"auth-registrator",
+			"event-listener",
 			"consul-register",
 			"carbonio-provisioner",
 		},
@@ -42,25 +28,9 @@ func DefaultDockerConfig() *DockerConfig {
 			"memcached",
 		},
 		AutoIncludedServices: []string{
+			"event-listener",
 			"consul-register",
 			"carbonio-provisioner",
-		},
-		RegistratorToService: map[string]string{
-			"mailbox-registrator":            "carbonio-mailbox",
-			"user-management-registrator":    "carbonio-user-management",
-			"catalog-registrator":            "carbonio-catalog",
-			"storages-registrator":           "carbonio-storages",
-			"docs-connector-registrator":     "carbonio-docs-connector",
-			"docs-editor-registrator":        "carbonio-docs-editor",
-			"preview-registrator":            "carbonio-preview",
-			"files-registrator":              "carbonio-files",
-			"tasks-registrator":              "carbonio-tasks",
-			"message-dispatcher-registrator": "carbonio-message-dispatcher",
-			"wsc-registrator":                "carbonio-ws-collaboration",
-			"advanced-registrator":           "carbonio-mailbox",
-			"address-book-registrator":       "carbonio-mailbox",
-			"auth-registrator":               "carbonio-mailbox",
-			"consul-register":                "consul",
 		},
 		LockedTagValues: []string{
 			"local",
@@ -82,6 +52,7 @@ func (dc *DockerConfig) IsServiceHidden(serviceName string) bool {
 	}
 	return false
 }
+
 func (dc *DockerConfig) IsServiceRequired(serviceName string) bool {
 	for _, required := range dc.RequiredServices {
 		if serviceName == required {
@@ -90,6 +61,7 @@ func (dc *DockerConfig) IsServiceRequired(serviceName string) bool {
 	}
 	return false
 }
+
 func (dc *DockerConfig) IsServiceAutoIncluded(serviceName string) bool {
 	for _, autoIncluded := range dc.AutoIncludedServices {
 		if serviceName == autoIncluded {
@@ -98,22 +70,7 @@ func (dc *DockerConfig) IsServiceAutoIncluded(serviceName string) bool {
 	}
 	return false
 }
-func (dc *DockerConfig) IsRegistrator(serviceName string) bool {
-	_, exists := dc.RegistratorToService[serviceName]
-	return exists
-}
-func (dc *DockerConfig) GetParentService(registratorName string) string {
-	return dc.RegistratorToService[registratorName]
-}
-func (dc *DockerConfig) GetRegistratorsForService(serviceName string) []string {
-	var registrators []string
-	for regName, parentService := range dc.RegistratorToService {
-		if parentService == serviceName {
-			registrators = append(registrators, regName)
-		}
-	}
-	return registrators
-}
+
 func (dc *DockerConfig) IsTagLocked(serviceName, tag string, isBackend bool) bool {
 	if isBackend {
 		for _, locked := range dc.ForcedLockedTagServices {
@@ -135,15 +92,7 @@ func (dc *DockerConfig) IsTagLocked(serviceName, tag string, isBackend bool) boo
 	}
 	return false
 }
+
 func IsServiceRequired(serviceName string) bool {
 	return GlobalDockerConfig.IsServiceRequired(serviceName)
-}
-func IsRegistrator(serviceName string) bool {
-	return GlobalDockerConfig.IsRegistrator(serviceName)
-}
-func GetParentServiceFromMap(registratorName string) string {
-	return GlobalDockerConfig.GetParentService(registratorName)
-}
-func GetRegistratorsForService(serviceName string) []string {
-	return GlobalDockerConfig.GetRegistratorsForService(serviceName)
 }
