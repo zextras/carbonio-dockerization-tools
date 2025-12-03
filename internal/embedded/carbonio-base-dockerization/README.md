@@ -7,53 +7,71 @@ Some services are mocked for the sake of keeping things simple.
 
 ## Quick start
 
-Start mails: 
-```bash 
+Start mails:
+
+```bash
 ./start-mails.sh
 ```
+
 Start files:
-```bash 
+
+```bash
 ./start-files.sh
 ```
+
 Start tasks:
-```bash 
+
+```bash
 ./start-tasks.sh
 ```
+
 Start WSC:
-```bash 
+
+```bash
 ./start-wsc.sh
 ```
+
 Start WSC with Videoserver:
-```bash 
+
+```bash
 ./start-wsc-videoserver.sh
 ```
+
+Start Admin Panel in isolation:
+
+```bash
+./start-admin.sh
+```
+
 To start in advanced mode (e.g.: files):
 
-```bash 
+```bash
 ./start-files.sh --advanced
 ```
 
 Stop:
-```bash 
+
+```bash
 ./stop.sh
 ```
+
 ## How does it work?
 
-The [docker-compose.yaml](docker-compose.yaml) file uses available images for the CE version of 
+The [docker-compose.yaml](docker-compose.yaml) file uses available images for the CE version of
 Carbonio.
-The [docker-compose-advanced.yaml](docker-compose-advanced.yaml) file contains overrides of the 
-`docker-compose.yaml`, using advanced images in place of CE images and 
+The [docker-compose-advanced.yaml](docker-compose-advanced.yaml) file contains overrides of the
+`docker-compose.yaml`, using advanced images in place of CE images and
 adding required settings where needed.
 
-The frontend is assembled in multi-stage Dockerfile (can be found inside 
+The frontend is assembled in multi-stage Dockerfile (can be found inside
 [composed-ui](composed-ui)) which uses Nginx as base image.
 
-Both backend and frontend images can be overridden by using environment 
+Both backend and frontend images can be overridden by using environment
 variables (see the compose definition for the respective image).
 
 ## Get started
 
-In your project, locate where you want to use the compose of this repository 
+In your project, locate where you want to use the compose of this repository
 (let's assume a `docker/` directory).
 
 Include this project as a submodule: `git submodule add https://github.com/zextras/carbonio-base-dockerization.git docker/base/carbonio-base-dockerization`
@@ -107,7 +125,8 @@ adding this line to your /etc/hosts file:
 cd composed-ui
 docker build --platform linux/amd64 -t carbonio-composed-ui:local . --no-cache
 ```
-To pull latest UI images be sure to run the same command wih the `--pull` 
+
+To pull latest UI images be sure to run the same command wih the `--pull`
 flag, else the build will use already pulled images and not the latest.
 
 ## Mac arm64 Users
