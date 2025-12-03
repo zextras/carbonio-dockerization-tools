@@ -324,6 +324,7 @@ services:
         CARBONIO_LOGIN_UI_IMAGE: ${CARBONIO_LOGIN_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-login-ui:devel}
         CARBONIO_ADMIN_CONSOLE_UI_IMAGE: ${CARBONIO_ADMIN_CONSOLE_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-admin-console-ui:devel}
         CARBONIO_ADMIN_LOGIN_UI_IMAGE: ${CARBONIO_ADMIN_LOGIN_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-admin-login-ui:devel}
+        CARBONIO_WEBUI_I18N_IMAGE: ${CARBONIO_WEBUI_I18N_IMAGE:-registry.dev.zextras.com/dev/carbonio-webui-i18n:devel}
         CARBONIO_PROXY_IMAGE: ${CARBONIO_PROXY_IMAGE:-registry.dev.zextras.com/dev/carbonio-proxy:devel}
     environment:
       - LDAP_URL=ldap://carbonio-openldap:1389
