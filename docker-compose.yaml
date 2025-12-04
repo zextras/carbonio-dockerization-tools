@@ -1,23 +1,20 @@
 name: carbonio
 
-x-registrator-template: &registrator-template
-  build:
-    context: ./registrator
-  depends_on:
-    consul:
-      condition: service_healthy
-
 services:
-  mailbox-registrator:
-    <<: *registrator-template
-    environment:
-      - SERVICE_NAME=carbonio-mailbox
-      - SERVICE_PORT=8080
-      - SERVICE_CHECK_TYPE=http
-      - SERVICE_CHECK_PATH=/service/health/ready
-    network_mode: "service:carbonio-mailbox"
+  event-listener:
+    build:
+      context: ./consul-service-registrator
+    container_name: event-listener
+    privileged: true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - consul
+    restart: always
 
   carbonio-mailbox:
+    labels:
+      - "servicePort=8080"
     image: ${CARBONIO_MAILBOX_IMAGE:-registry.dev.zextras.com/dev/carbonio-mailbox:devel}
     hostname: docker.carbonio.localhost
     restart: on-failure
@@ -47,6 +44,8 @@ services:
       test: curl --fail --silent localhost:8080/service/health/ready || exit 1
       timeout: 10s
     depends_on:
+      event-listener:
+        condition: service_started
       carbonio-openldap:
         condition: service_healthy
       carbonio-postfix:
@@ -109,14 +108,9 @@ services:
       carbonio-openldap:
         condition: service_healthy
 
-  user-management-registrator:
-    <<: *registrator-template
-    environment:
-      - SERVICE_NAME=carbonio-user-management
-      - SERVICE_PORT=10000
-    network_mode: "service:carbonio-user-management"
-
   carbonio-user-management:
+    labels:
+      - "servicePort=10000"
     image: ${CARBONIO_USER_MANAGEMENT_IMAGE:-registry.dev.zextras.com/dev/carbonio-user-management:devel}
     restart: on-failure
     environment:
@@ -125,6 +119,7 @@ services:
       - CARBONIO_MAILBOX_HOST=carbonio-mailbox
       - CARBONIO_MAILBOX_PORT=8080
     depends_on:
+      - event-listener
       - carbonio-mailbox
 
   consul:
@@ -138,25 +133,26 @@ services:
       retries: 10
       start_period: 20s
       timeout: 10s
-    command: [
-      "agent",
-      "-server",
-      "-bootstrap-expect=1",
-      "-ui",
-      "-client=0.0.0.0",
-      "-bind=0.0.0.0",
-      "-data-dir=/consul/data",
-      "-disable-host-node-id",
-      "-log-level=INFO",
-      "-node=consul-server",
-      "-hcl=disable_update_check = true"
-    ]
+    command:
+      [
+        "agent",
+        "-server",
+        "-bootstrap-expect=1",
+        "-ui",
+        "-client=0.0.0.0",
+        "-bind=0.0.0.0",
+        "-data-dir=/consul/data",
+        "-disable-host-node-id",
+        "-log-level=INFO",
+        "-node=consul-server",
+        "-hcl=disable_update_check = true",
+      ]
     volumes:
       - consul-data:/consul/data
 
   consul-register:
     image: alpine/curl
-    entrypoint: [ "/bin/sh", "-c", "/scripts/init.sh"]
+    entrypoint: ["/bin/sh", "-c", "/scripts/init.sh"]
     volumes:
       - ./consul:/scripts
     network_mode: "service:consul"
@@ -164,18 +160,15 @@ services:
       consul:
         condition: service_healthy
 
-  catalog-registrator:
-    <<: *registrator-template
-    environment:
-      - SERVICE_NAME=carbonio-catalog
-      - SERVICE_PORT=10000
-    network_mode: "service:carbonio-catalog"
-
   carbonio-catalog:
     image: ${CARBONIO_CATALOG_IMAGE:-registry.dev.zextras.com/dev/carbonio-catalog:latest}
+    labels:
+      - "servicePort=10000"
     restart: on-failure
     environment:
       - CONSUL_URL=http://consul:8500
+    depends_on:
+      - event-listener
 
   carbonio-postgres:
     image: postgres:16
@@ -199,37 +192,24 @@ services:
       retries: 3
       start_period: 30s
 
-  storages-registrator:
-    <<: *registrator-template
-    environment:
-      - SERVICE_NAME=carbonio-storages
-      - SERVICE_PORT=10000
-    network_mode: "service:carbonio-storages"
-
   carbonio-storages:
     image: carbonio-storages:local
+    labels:
+      - "servicePort=10000"
     build:
       context: ./carbonio-storages
       dockerfile: Dockerfile
     restart: on-failure
     volumes:
       - storages_data:/storage
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.carbonio-storages.entrypoints=storages"
-      - "traefik.http.routers.carbonio-storages.rule=PathPrefix(`/`)"
-      - "traefik.http.services.carbonio-storages.loadbalancer.server.port=10000"
-
-  docs-connector-registrator:
-    <<: *registrator-template
-    environment:
-      - SERVICE_NAME=carbonio-docs-connector
-      - SERVICE_PORT=10000
-    network_mode: "service:carbonio-docs-connector"
+    depends_on:
+      - event-listener
 
   carbonio-docs-connector:
     image: ${CARBONIO_DOCS_CONNECTOR_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-docs-connector-ce:devel}
     restart: on-failure
+    labels:
+      - "servicePort=10000"
     environment:
       - CARBONIO_DOCS_CONNECTOR_HOST=0.0.0.0
       - CARBONIO_DOCS_CONNECTOR_PORT=10000
@@ -243,24 +223,15 @@ services:
       - CARBONIO_WOPI_PORT=10000
       - CARBONIO_REQUESTER_DOMAIN_OVERRIDE=http://docker.carbonio.localhost
     depends_on:
+      - event-listener
       - carbonio-files
       - carbonio-docs-editor
     extra_hosts:
       - "localhost:host-gateway"
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.carbonio-docs-connector.entrypoints=docs_connector"
-      - "traefik.http.routers.carbonio-docs-connector.rule=PathPrefix(`/`)"
-      - "traefik.http.services.carbonio-docs-connector.loadbalancer.server.port=10000"
-
-  docs-editor-registrator:
-    <<: *registrator-template
-    environment:
-      - SERVICE_NAME=carbonio-docs-editor
-      - SERVICE_PORT=10000
-    network_mode: "service:carbonio-docs-editor"
 
   carbonio-docs-editor:
+    labels:
+      - "servicePort=10000"
     build:
       context: ./carbonio-docs-editor
       dockerfile: Dockerfile
@@ -278,23 +249,13 @@ services:
       - SYS_CHROOT
     security_opt:
       - apparmor:unconfined
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.carbonio-docs-editor.entrypoints=docs_editor"
-      - "traefik.http.routers.carbonio-docs-editor.rule=PathPrefix(`/`)"
-      - "traefik.http.services.carbonio-docs-editor.loadbalancer.server.port=10000"
-
-  preview-registrator:
-    <<: *registrator-template
-    environment:
-      - SERVICE_NAME=carbonio-preview
-      - SERVICE_PORT=10000
-      - SERVICE_CHECK_TYPE=http
-      - SERVICE_CHECK_PATH=/health/live/
-    network_mode: "service:carbonio-preview"
+    depends_on:
+      - event-listener
 
   carbonio-preview:
     image: ${CARBONIO_PREVIEW_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-preview-ce:devel}
+    labels:
+      - "servicePort=10000"
     restart: on-failure
     environment:
       - PREVIEW_HOST=0.0.0.0
@@ -304,6 +265,7 @@ services:
       - DOCS_EDITOR_HOST=carbonio-docs-editor
       - DOCS_EDITOR_PORT=10000
     depends_on:
+      - event-listener
       - consul
 
   carbonio-message-broker:
@@ -320,16 +282,9 @@ services:
       retries: 3
       start_period: 30s
 
-  files-registrator:
-    <<: *registrator-template
-    environment:
-      - SERVICE_NAME=carbonio-files
-      - SERVICE_PORT=10000
-      - SERVICE_CHECK_TYPE=http
-      - SERVICE_CHECK_PATH=/health/live/
-    network_mode: "service:carbonio-files"
-
   carbonio-files:
+    labels:
+      - "servicePort=10000"
     image: ${CARBONIO_FILES_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-files-ce:devel}
     restart: on-failure
     environment:
@@ -351,17 +306,18 @@ services:
       - CARBONIO_USER_MANAGEMENT_HOST=carbonio-user-management
       - CARBONIO_USER_MANAGEMENT_PORT=10000
     depends_on:
+      event-listener:
+        condition: service_started
       consul:
         condition: service_healthy
       carbonio-postgres:
         condition: service_started
+      carbonio-storages:
+        condition: service_started
+      carbonio-user-management:
+        condition: service_started
     extra_hosts:
       - "localhost:host-gateway"
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.carbonio-files.entrypoints=files"
-      - "traefik.http.routers.carbonio-files.rule=PathPrefix(`/`)"
-      - "traefik.http.services.carbonio-files.loadbalancer.server.port=10000"
 
   carbonio-composed-ui:
     image: carbonio-composed-ui:local
@@ -381,6 +337,7 @@ services:
         CARBONIO_LOGIN_UI_IMAGE: ${CARBONIO_LOGIN_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-login-ui:devel}
         CARBONIO_ADMIN_CONSOLE_UI_IMAGE: ${CARBONIO_ADMIN_CONSOLE_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-admin-console-ui:devel}
         CARBONIO_ADMIN_LOGIN_UI_IMAGE: ${CARBONIO_ADMIN_LOGIN_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-admin-login-ui:devel}
+        CARBONIO_WEBUI_I18N_IMAGE: ${CARBONIO_WEBUI_I18N_IMAGE:-registry.dev.zextras.com/dev/carbonio-webui-i18n:devel}
         CARBONIO_PROXY_IMAGE: ${CARBONIO_PROXY_IMAGE:-registry.dev.zextras.com/dev/carbonio-proxy:devel}
     environment:
       - LDAP_URL=ldap://carbonio-openldap:1389
@@ -426,26 +383,25 @@ services:
     command:
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
-      - "--entrypoints.files.address=:8082"
-      - "--entrypoints.docs_connector.address=:8083"
-      - "--entrypoints.docs_editor.address=:8084"
-      - "--entrypoints.tasks.address=:8085"
-      - "--entrypoints.storages.address=:8086"
-      - "--entrypoints.message_dispatcher.address=:8087"
-      - "--entrypoints.wsc.address=:8088"
+      - "--providers.consulcatalog=true"
+      - "--providers.consulcatalog.endpoint.address=http://consul:8500"
+      - "--providers.consulcatalog.exposedByDefault=false"
+      - "--entrypoints.carbonio-files.address=:8082"
+      - "--entrypoints.carbonio-docs-connector.address=:8083"
+      - "--entrypoints.carbonio-docs-editor.address=:8084"
+      - "--entrypoints.carbonio-tasks.address=:8085"
+      - "--entrypoints.carbonio-storages.address=:8086"
+      - "--entrypoints.carbonio-message-dispatcher.address=:8087"
+      - "--entrypoints.carbonio-ws-collaboration.address=:8088"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-
-  tasks-registrator:
-    <<: *registrator-template
-    environment:
-      - SERVICE_NAME=carbonio-tasks
-      - SERVICE_PORT=10000
-      - SERVICE_CHECK_TYPE=http
-      - SERVICE_CHECK_PATH=/rest/health/live/
-    network_mode: "service:carbonio-tasks"
+    depends_on:
+      consul:
+        condition: service_healthy
 
   carbonio-tasks:
+    labels:
+      - "servicePort=10000"
     image: ${CARBONIO_TASKS_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-tasks-ce:devel}
     restart: on-failure
     environment:
@@ -456,17 +412,16 @@ services:
       - CARBONIO_USER_MANAGEMENT_HOST=carbonio-user-management
       - CARBONIO_USER_MANAGEMENT_PORT=10000
     depends_on:
+      event-listener:
+        condition: service_started
       consul:
         condition: service_healthy
       carbonio-postgres:
         condition: service_started
+      carbonio-user-management:
+        condition: service_started
     extra_hosts:
       - "localhost:host-gateway"
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.carbonio-tasks.entrypoints=tasks"
-      - "traefik.http.routers.carbonio-tasks.rule=PathPrefix(`/`)"
-      - "traefik.http.services.carbonio-tasks.loadbalancer.server.port=10000"
 
   carbonio-message-dispatcher-db:
     image: ${CARBONIO_MESSAGE_DISPATCHER_CE_DB_IMAGE:-registry.dev.zextras.com/dev/carbonio-message-dispatcher-ce-db:latest}
@@ -488,17 +443,14 @@ services:
       retries: 3
       start_period: 30s
 
-  message-dispatcher-registrator:
-    <<: *registrator-template
-    environment:
-      - SERVICE_NAME=carbonio-message-dispatcher
-      - SERVICE_PORT=10000
-    network_mode: "service:carbonio-message-dispatcher"
-
   carbonio-message-dispatcher:
+    labels:
+      - "servicePort=10000"
     image: ${CARBONIO_MESSAGE_DISPATCHER_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-message-dispatcher-ce:latest}
     restart: unless-stopped
     depends_on:
+      event-listener:
+        condition: service_started
       carbonio-postgres:
         condition: service_healthy
       carbonio-message-dispatcher-db:
@@ -509,11 +461,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.carbonio-message-dispatcher.entrypoints=message_dispatcher"
-      - "traefik.http.routers.carbonio-message-dispatcher.rule=PathPrefix(`/`)"
-      - "traefik.http.services.carbonio-message-dispatcher.loadbalancer.server.port=10000"
 
   carbonio-videoserver:
     image: ${CARBONIO_VIDEOSERVER_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-videoserver-ce:devel}
@@ -522,16 +469,9 @@ services:
     volumes:
       - shared-videoserver:/var/lib/videoserver
 
-  wsc-registrator:
-    <<: *registrator-template
-    environment:
-      - SERVICE_NAME=carbonio-ws-collaboration
-      - SERVICE_PORT=8080
-      - SERVICE_CHECK_TYPE=http
-      - SERVICE_CHECK_PATH=/health/live/
-    network_mode: "service:carbonio-ws-collaboration"
-
   carbonio-ws-collaboration:
+    labels:
+      - "servicePort=8080"
     image: ${CARBONIO_WSC_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-ws-collaboration-ce:latest}
     restart: unless-stopped
     environment:
@@ -563,17 +503,18 @@ services:
       - STORAGES_HOST=carbonio-storages
       - STORAGES_PORT=10000
     depends_on:
+      event-listener:
+        condition: service_started
       carbonio-postgres:
         condition: service_healthy
       carbonio-message-broker:
         condition: service_healthy
       carbonio-message-dispatcher:
         condition: service_healthy
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.carbonio-ws-collaboration.entrypoints=wsc"
-      - "traefik.http.routers.carbonio-ws-collaboration.rule=PathPrefix(`/`)"
-      - "traefik.http.services.carbonio-ws-collaboration.loadbalancer.server.port=8080"
+      carbonio-storages:
+        condition: service_started
+      carbonio-user-management:
+        condition: service_started
 
 volumes:
   ldap_data:
