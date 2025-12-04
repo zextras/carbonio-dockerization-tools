@@ -44,6 +44,8 @@ services:
       test: curl --fail --silent localhost:8080/service/health/ready || exit 1
       timeout: 10s
     depends_on:
+      event-listener:
+        condition: service_started
       carbonio-openldap:
         condition: service_healthy
       carbonio-postfix:
@@ -117,6 +119,7 @@ services:
       - CARBONIO_MAILBOX_HOST=carbonio-mailbox
       - CARBONIO_MAILBOX_PORT=8080
     depends_on:
+      - event-listener
       - carbonio-mailbox
 
   consul:
@@ -164,6 +167,8 @@ services:
     restart: on-failure
     environment:
       - CONSUL_URL=http://consul:8500
+    depends_on:
+      - event-listener
 
   carbonio-postgres:
     image: postgres:16
@@ -197,6 +202,8 @@ services:
     restart: on-failure
     volumes:
       - storages_data:/storage
+    depends_on:
+      - event-listener
 
   carbonio-docs-connector:
     image: ${CARBONIO_DOCS_CONNECTOR_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-docs-connector-ce:devel}
@@ -216,6 +223,7 @@ services:
       - CARBONIO_WOPI_PORT=10000
       - CARBONIO_REQUESTER_DOMAIN_OVERRIDE=http://docker.carbonio.localhost
     depends_on:
+      - event-listener
       - carbonio-files
       - carbonio-docs-editor
     extra_hosts:
@@ -241,6 +249,8 @@ services:
       - SYS_CHROOT
     security_opt:
       - apparmor:unconfined
+    depends_on:
+      - event-listener
 
   carbonio-preview:
     image: ${CARBONIO_PREVIEW_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-preview-ce:devel}
@@ -255,6 +265,7 @@ services:
       - DOCS_EDITOR_HOST=carbonio-docs-editor
       - DOCS_EDITOR_PORT=10000
     depends_on:
+      - event-listener
       - consul
 
   carbonio-message-broker:
@@ -295,6 +306,8 @@ services:
       - CARBONIO_USER_MANAGEMENT_HOST=carbonio-user-management
       - CARBONIO_USER_MANAGEMENT_PORT=10000
     depends_on:
+      event-listener:
+        condition: service_started
       consul:
         condition: service_healthy
       carbonio-postgres:
@@ -399,6 +412,8 @@ services:
       - CARBONIO_USER_MANAGEMENT_HOST=carbonio-user-management
       - CARBONIO_USER_MANAGEMENT_PORT=10000
     depends_on:
+      event-listener:
+        condition: service_started
       consul:
         condition: service_healthy
       carbonio-postgres:
@@ -434,6 +449,8 @@ services:
     image: ${CARBONIO_MESSAGE_DISPATCHER_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-message-dispatcher-ce:latest}
     restart: unless-stopped
     depends_on:
+      event-listener:
+        condition: service_started
       carbonio-postgres:
         condition: service_healthy
       carbonio-message-dispatcher-db:
@@ -486,6 +503,8 @@ services:
       - STORAGES_HOST=carbonio-storages
       - STORAGES_PORT=10000
     depends_on:
+      event-listener:
+        condition: service_started
       carbonio-postgres:
         condition: service_healthy
       carbonio-message-broker:

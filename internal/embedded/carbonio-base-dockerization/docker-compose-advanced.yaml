@@ -9,6 +9,8 @@ services:
       - command: /bin/sh -c ". /usr/bin/register-service.sh && register"
     image: ${CARBONIO_ADVANCED_IMAGE:-registry.dev.zextras.com/dev/carbonio-advanced:devel}
     depends_on:
+      event-listener:
+        condition: service_started
       carbonio-postgres:
         condition: service_started
       consul:
