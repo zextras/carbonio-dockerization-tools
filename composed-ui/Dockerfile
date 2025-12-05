@@ -4,6 +4,7 @@ ARG CARBONIO_CONTACTS_UI_IMAGE
 ARG CARBONIO_CALENDARS_UI_IMAGE
 ARG CARBONIO_SEARCH_UI_IMAGE
 ARG CARBONIO_FILES_UI_IMAGE
+ARG CARBONIO_TASKS_UI_IMAGE
 ARG CARBONIO_AUTH_UI_IMAGE
 ARG CARBONIO_WSC_UI_IMAGE
 ARG CARBONIO_LOGIN_UI_IMAGE
@@ -21,6 +22,7 @@ RUN mkdir -p /opt/zextras/web/iris/carbonio-shell-ui \
              /opt/zextras/web/iris/carbonio-calendars-ui \
              /opt/zextras/web/iris/carbonio-search-ui \
              /opt/zextras/web/iris/carbonio-files-ui \
+             /opt/zextras/web/iris/carbonio-tasks-ui \
              /opt/zextras/web/iris/carbonio-auth-ui \
              /opt/zextras/web/iris/carbonio-ws-collaboration-ui \
              /opt/zextras/web/login \
@@ -40,6 +42,8 @@ FROM ${CARBONIO_AUTH_UI_IMAGE} AS auth-ui
 FROM ${CARBONIO_SEARCH_UI_IMAGE} AS search-ui
 
 FROM ${CARBONIO_FILES_UI_IMAGE} AS files-ui
+
+FROM ${CARBONIO_TASKS_UI_IMAGE} AS tasks-ui
 
 FROM ${CARBONIO_WSC_UI_IMAGE} AS wsc-ui
 
@@ -68,6 +72,7 @@ COPY --from=mails-ui /opt/zextras/web/iris/carbonio-mails-ui /opt/zextras/web/ir
 COPY --from=calendars-ui /opt/zextras/web/iris/carbonio-calendars-ui /opt/zextras/web/iris/carbonio-calendars-ui
 COPY --from=contacts-ui /opt/zextras/web/iris/carbonio-contacts-ui /opt/zextras/web/iris/carbonio-contacts-ui
 COPY --from=files-ui /opt/zextras/web/iris/carbonio-files-ui /opt/zextras/web/iris/carbonio-files-ui
+COPY --from=tasks-ui /opt/zextras/web/iris/carbonio-tasks-ui /opt/zextras/web/iris/carbonio-tasks-ui
 COPY --from=wsc-ui /opt/zextras/web/iris/carbonio-ws-collaboration-ui /opt/zextras/web/iris/carbonio-ws-collaboration-ui
 COPY --from=search-ui /opt/zextras/web/iris/carbonio-search-ui /opt/zextras/web/iris/carbonio-search-ui
 COPY --from=auth-ui /opt/zextras/web/iris/carbonio-auth-ui /opt/zextras/web/iris/carbonio-auth-ui
@@ -88,7 +93,8 @@ COPY --from=webui-i18n /opt/zextras/web/iris/carbonio-auth-ui/i18n /opt/zextras/
 COPY --from=webui-i18n /opt/zextras/web/iris/carbonio-calendars-ui/i18n /opt/zextras/web/iris/carbonio-calendars-ui/i18n
 COPY --from=webui-i18n /opt/zextras/web/iris/carbonio-contacts-ui/i18n /opt/zextras/web/iris/carbonio-contacts-ui/i18n
 COPY --from=webui-i18n /opt/zextras/web/iris/carbonio-files-ui/i18n /opt/zextras/web/iris/carbonio-files-ui/i18n
-COPY --from=webui-i18n /opt/zextras/web/iris/carbonio-mails-ui/i18n /opt/zextras/web/iris/carbonio-mails-ui/i18n 
+COPY --from=webui-i18n /opt/zextras/web/iris/carbonio-tasks-ui/i18n /opt/zextras/web/iris/carbonio-tasks-ui/i18n
+COPY --from=webui-i18n /opt/zextras/web/iris/carbonio-mails-ui/i18n /opt/zextras/web/iris/carbonio-mails-ui/i18n
 COPY --from=webui-i18n /opt/zextras/web/iris/carbonio-search-ui/i18n /opt/zextras/web/iris/carbonio-search-ui/i18n 
 COPY --from=webui-i18n /opt/zextras/web/iris/carbonio-shell-ui/i18n /opt/zextras/web/iris/carbonio-shell-ui/i18n
 COPY --from=webui-i18n /opt/zextras/web/iris/carbonio-tasks-ui/i18n /opt/zextras/web/iris/carbonio-tasks-ui/i18n

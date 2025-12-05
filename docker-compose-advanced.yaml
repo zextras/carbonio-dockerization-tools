@@ -7,7 +7,7 @@ services:
       - command: /bin/sh -c ". /usr/bin/register-service.sh && unregister"
     post_start:
       - command: /bin/sh -c ". /usr/bin/register-service.sh && register"
-    image: ${CARBONIO_ADVANCED_IMAGE:-registry.dev.zextras.com/dev/carbonio-advanced:devel}
+    image: ${CARBONIO_ADVANCED_IMAGE:-registry.dev.zextras.com/dev/carbonio-advanced:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
     depends_on:
       event-listener:
         condition: service_started
@@ -27,39 +27,35 @@ services:
       - ./carbonio-catalog/advanced/response.json:/config/response.json
 
   carbonio-files:
-    image: ${CARBONIO_FILES_IMAGE:-registry.dev.zextras.com/dev/carbonio-files:devel}
+    image: ${CARBONIO_FILES_IMAGE:-registry.dev.zextras.com/dev/carbonio-files:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
     environment:
       - CARBONIO_NGINX_LOOKUP_HOST=carbonio-mailbox
       - CARBONIO_NGINX_LOOKUP_PORT=7072
 
   carbonio-preview:
-    image: ${CARBONIO_PREVIEW_IMAGE:-registry.dev.zextras.com/dev/carbonio-preview:devel}
+    image: ${CARBONIO_PREVIEW_IMAGE:-registry.dev.zextras.com/dev/carbonio-preview:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
     environment:
       - STORAGES_MEMCACHED_SERVER_FULL_PATH_URLS=memcached:11211
       - STORAGES_NGINX_LOOKUP_SERVER_FULL_PATH_URLS=https://carbonio-mailbox:7072
       - STORAGES_SERVICE_EXTENSION_NGINX_LOOKUP=service/extension/nginx-lookup
 
   carbonio-tasks:
-    image: ${CARBONIO_TASKS_IMAGE:-registry.dev.zextras.com/dev/carbonio-tasks:devel}
-
+    image: ${CARBONIO_TASKS_IMAGE:-registry.dev.zextras.com/dev/carbonio-tasks:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
   carbonio-message-dispatcher-db:
-    image: ${CARBONIO_MESSAGE_DISPATCHER_DB_IMAGE:-registry.dev.zextras.com/dev/carbonio-message-dispatcher-db:devel}
-
+    image: ${CARBONIO_MESSAGE_DISPATCHER_DB_IMAGE:-registry.dev.zextras.com/dev/carbonio-message-dispatcher-db:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
   carbonio-message-dispatcher:
-    image: ${CARBONIO_MESSAGE_DISPATCHER_IMAGE:-registry.dev.zextras.com/dev/carbonio-message-dispatcher:devel}
-
+    image: ${CARBONIO_MESSAGE_DISPATCHER_IMAGE:-registry.dev.zextras.com/dev/carbonio-message-dispatcher:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
   carbonio-videoserver:
-    image: ${CARBONIO_VIDEOSERVER_ADVANCED_IMAGE:-registry.dev.zextras.com/dev/carbonio-videoserver-advanced:latest}
-
+    image: ${CARBONIO_VIDEOSERVER_ADVANCED_IMAGE:-registry.dev.zextras.com/dev/carbonio-videoserver-advanced:${CARBONIO_GLOBAL_IMAGES_TAG:-latest}}
   carbonio-videorecorder:
-    image: ${CARBONIO_VIDEORECORDER_IMAGE:-registry.dev.zextras.com/dev/carbonio-videorecorder:devel}
+    image: ${CARBONIO_VIDEORECORDER_IMAGE:-registry.dev.zextras.com/dev/carbonio-videorecorder:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
     volumes:
       - shared-videoserver:/var/lib/videoserver
     environment:
       - CARBONIO_ENV=docker
 
   carbonio-ws-collaboration:
-    image: ${CARBONIO_WSC_IMAGE:-registry.dev.zextras.com/dev/carbonio-ws-collaboration:devel}
+    image: ${CARBONIO_WSC_IMAGE:-registry.dev.zextras.com/dev/carbonio-ws-collaboration:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
     environment:
       - VIDEO_RECORDER_HOST=carbonio-videorecorder
       - VIDEO_RECORDER_PORT=8090
