@@ -69,20 +69,60 @@ func ParseComposeFile(data []byte, edition Edition) (map[string]*ServiceDefiniti
 }
 
 func extractEnvVar(imageStr string) (envVar, defaultImage string) {
-	imageStr = strings.TrimPrefix(imageStr, "${")
-	imageStr = strings.TrimSuffix(imageStr, "}")
-	var parts []string
-	if strings.Contains(imageStr, ":-") {
-		parts = strings.SplitN(imageStr, ":-", 2)
-	} else if strings.Contains(imageStr, "-") {
-		parts = strings.SplitN(imageStr, "-", 2)
-	} else {
+	if !strings.HasPrefix(imageStr, "${") {
 		return imageStr, ""
 	}
-	if len(parts) == 2 {
-		return parts[0], parts[1]
+	content := strings.TrimPrefix(imageStr, "${")
+	if strings.HasSuffix(content, "}") {
+		content = content[:len(content)-1]
 	}
-	return imageStr, ""
+	if idx := strings.Index(content, ":-"); idx != -1 {
+		envVar = content[:idx]
+		defaultImage = content[idx+2:]
+		defaultImage = resolveNestedEnvVars(defaultImage)
+		return envVar, defaultImage
+	}
+	return content, ""
+}
+
+func resolveNestedEnvVars(s string) string {
+	result := s
+	for {
+		start := strings.Index(result, "${")
+		if start == -1 {
+			break
+		}
+		depth := 1
+		end := -1
+		for i := start + 2; i < len(result); i++ {
+			if i+1 < len(result) && result[i] == '$' && result[i+1] == '{' {
+				depth++
+				i++
+			} else if result[i] == '}' {
+				depth--
+				if depth == 0 {
+					end = i
+					break
+				}
+			}
+		}
+		var defaultVal string
+		if end != -1 {
+			varContent := result[start+2 : end]
+			if idx := strings.Index(varContent, ":-"); idx != -1 {
+				defaultVal = varContent[idx+2:]
+			}
+			result = result[:start] + defaultVal + result[end+1:]
+		} else {
+			varContent := result[start+2:]
+			if idx := strings.Index(varContent, ":-"); idx != -1 {
+				defaultVal = varContent[idx+2:]
+			}
+			result = result[:start] + defaultVal
+			break
+		}
+	}
+	return result
 }
 
 func extractTag(imageURL string) string {

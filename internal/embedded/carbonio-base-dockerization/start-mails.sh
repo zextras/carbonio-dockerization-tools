@@ -6,6 +6,10 @@ if [[ "$1" == "--advanced" ]]; then
     export COMPOSE_FILE="docker-compose.yaml:docker-compose-advanced.yaml"
     shift
     ALL_SERVICES+=("$@")
+elif [[ "$1" == "--monitoring" ]]; then
+    export COMPOSE_FILE="docker-compose.yaml:monitoring.yaml"
+    shift
+    ALL_SERVICES+=("$@")
 else
     ALL_SERVICES+=("$@")
 fi

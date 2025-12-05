@@ -27,6 +27,9 @@ func ParseDockerfileUIArgs(data []byte) (map[string]*UIImageDefinition, error) {
 		}
 		envVar := strings.TrimSpace(parts[0])
 		defaultImage := strings.TrimSpace(parts[1])
+		if strings.Contains(defaultImage, "${") {
+			defaultImage = resolveNestedEnvVars(defaultImage)
+		}
 		log.Printf("Line %d: Found ARG %s=%s", lineNum, envVar, defaultImage)
 		if strings.HasSuffix(envVar, "_UI_IMAGE") || envVar == "CARBONIO_PROXY_IMAGE" {
 			friendlyName := extractUIName(envVar)

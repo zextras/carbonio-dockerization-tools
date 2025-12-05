@@ -13,9 +13,9 @@ services:
     restart: always
 
   carbonio-mailbox:
+    image: ${CARBONIO_MAILBOX_IMAGE:-registry.dev.zextras.com/dev/carbonio-mailbox:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
     labels:
       - "servicePort=8080"
-    image: ${CARBONIO_MAILBOX_IMAGE:-registry.dev.zextras.com/dev/carbonio-mailbox:devel}
     hostname: docker.carbonio.localhost
     restart: on-failure
     ports:
@@ -64,7 +64,7 @@ services:
     restart: "no"
 
   carbonio-openldap:
-    image: ${CARBONIO_OPENLDAP_IMAGE:-registry.dev.zextras.com/dev/carbonio-openldap:devel}
+    image: ${CARBONIO_OPENLDAP_IMAGE:-registry.dev.zextras.com/dev/carbonio-openldap:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
     restart: on-failure
     healthcheck:
       interval: 60s
@@ -85,12 +85,12 @@ services:
       - ldap_ca:/opt/zextras/conf/ca
 
   carbonio-mariadb:
-    image: ${CARBONIO_MARIADB_IMAGE:-registry.dev.zextras.com/dev/carbonio-mariadb:devel}
+    image: ${CARBONIO_MARIADB_IMAGE:-registry.dev.zextras.com/dev/carbonio-mariadb:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
     volumes:
       - mariadb_data:/var/lib/mysql
 
   carbonio-postfix:
-    image: ${CARBONIO_MTA_IMAGE:-registry.dev.zextras.com/dev/carbonio-mta:latest}
+    image: ${CARBONIO_MTA_IMAGE:-registry.dev.zextras.com/dev/carbonio-mta:${CARBONIO_GLOBAL_IMAGES_TAG:-latest}}
     ports:
       - "20025:25"
     environment:
@@ -111,7 +111,7 @@ services:
   carbonio-user-management:
     labels:
       - "servicePort=10000"
-    image: ${CARBONIO_USER_MANAGEMENT_IMAGE:-registry.dev.zextras.com/dev/carbonio-user-management:devel}
+    image: ${CARBONIO_USER_MANAGEMENT_IMAGE:-registry.dev.zextras.com/dev/carbonio-user-management:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
     restart: on-failure
     environment:
       - CARBONIO_USER_MANAGEMENT_HOST=0.0.0.0
@@ -206,7 +206,7 @@ services:
       - event-listener
 
   carbonio-docs-connector:
-    image: ${CARBONIO_DOCS_CONNECTOR_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-docs-connector-ce:devel}
+    image: ${CARBONIO_DOCS_CONNECTOR_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-docs-connector-ce:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
     restart: on-failure
     labels:
       - "servicePort=10000"
@@ -253,7 +253,7 @@ services:
       - event-listener
 
   carbonio-preview:
-    image: ${CARBONIO_PREVIEW_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-preview-ce:devel}
+    image: ${CARBONIO_PREVIEW_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-preview-ce:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
     labels:
       - "servicePort=10000"
     restart: on-failure
@@ -269,7 +269,7 @@ services:
       - consul
 
   carbonio-message-broker:
-    image: ${CARBONIO_MESSAGE_BROKER_IMAGE:-registry.dev.zextras.com/dev/carbonio-message-broker:latest}
+    image: ${CARBONIO_MESSAGE_BROKER_IMAGE:-registry.dev.zextras.com/dev/carbonio-message-broker:${CARBONIO_GLOBAL_IMAGES_TAG:-latest}}
     container_name: carbonio-message-broker
     hostname: carbonio-message-broker
     restart: unless-stopped
@@ -283,9 +283,9 @@ services:
       start_period: 30s
 
   carbonio-files:
+    image: ${CARBONIO_FILES_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-files-ce:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
     labels:
       - "servicePort=10000"
-    image: ${CARBONIO_FILES_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-files-ce:devel}
     restart: on-failure
     environment:
       - JAVA_OPTS=-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5050
@@ -320,25 +320,26 @@ services:
       - "localhost:host-gateway"
 
   carbonio-composed-ui:
-    image: carbonio-composed-ui:local
+    # image: carbonio-composed-ui:local
     hostname: docker.carbonio-proxy.localhost
     build:
       context: ./composed-ui
       dockerfile: Dockerfile
       args:
-        CARBONIO_SHELL_UI_IMAGE: ${CARBONIO_SHELL_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-shell-ui:devel}
-        CARBONIO_MAILS_UI_IMAGE: ${CARBONIO_MAILS_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-mails-ui:devel}
-        CARBONIO_CONTACTS_UI_IMAGE: ${CARBONIO_CONTACTS_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-contacts-ui:devel}
-        CARBONIO_CALENDARS_UI_IMAGE: ${CARBONIO_CALENDARS_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-calendars-ui:devel}
-        CARBONIO_AUTH_UI_IMAGE: ${CARBONIO_AUTH_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-auth-ui:devel}
-        CARBONIO_SEARCH_UI_IMAGE: ${CARBONIO_SEARCH_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-search-ui:devel}
-        CARBONIO_FILES_UI_IMAGE: ${CARBONIO_FILES_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-files-ui:devel}
-        CARBONIO_WSC_UI_IMAGE: ${CARBONIO_WSC_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-ws-collaboration-ui:devel}
-        CARBONIO_LOGIN_UI_IMAGE: ${CARBONIO_LOGIN_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-login-ui:devel}
-        CARBONIO_ADMIN_CONSOLE_UI_IMAGE: ${CARBONIO_ADMIN_CONSOLE_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-admin-console-ui:devel}
-        CARBONIO_ADMIN_LOGIN_UI_IMAGE: ${CARBONIO_ADMIN_LOGIN_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-admin-login-ui:devel}
-        CARBONIO_WEBUI_I18N_IMAGE: ${CARBONIO_WEBUI_I18N_IMAGE:-registry.dev.zextras.com/dev/carbonio-webui-i18n:devel}
-        CARBONIO_PROXY_IMAGE: ${CARBONIO_PROXY_IMAGE:-registry.dev.zextras.com/dev/carbonio-proxy:devel}
+        CARBONIO_SHELL_UI_IMAGE: ${CARBONIO_SHELL_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-shell-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+        CARBONIO_MAILS_UI_IMAGE: ${CARBONIO_MAILS_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-mails-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+        CARBONIO_CONTACTS_UI_IMAGE: ${CARBONIO_CONTACTS_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-contacts-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+        CARBONIO_CALENDARS_UI_IMAGE: ${CARBONIO_CALENDARS_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-calendars-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+        CARBONIO_AUTH_UI_IMAGE: ${CARBONIO_AUTH_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-auth-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+        CARBONIO_SEARCH_UI_IMAGE: ${CARBONIO_SEARCH_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-search-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+        CARBONIO_FILES_UI_IMAGE: ${CARBONIO_FILES_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-files-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+        CARBONIO_TASKS_UI_IMAGE: ${CARBONIO_TASKS_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-tasks-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+        CARBONIO_WSC_UI_IMAGE: ${CARBONIO_WSC_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-ws-collaboration-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+        CARBONIO_LOGIN_UI_IMAGE: ${CARBONIO_LOGIN_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-login-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+        CARBONIO_ADMIN_CONSOLE_UI_IMAGE: ${CARBONIO_ADMIN_CONSOLE_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-admin-console-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+        CARBONIO_ADMIN_LOGIN_UI_IMAGE: ${CARBONIO_ADMIN_LOGIN_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-admin-login-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+        CARBONIO_WEBUI_I18N_IMAGE: ${CARBONIO_WEBUI_I18N_IMAGE:-registry.dev.zextras.com/dev/carbonio-webui-i18n:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+        CARBONIO_PROXY_IMAGE: ${CARBONIO_PROXY_IMAGE:-registry.dev.zextras.com/dev/carbonio-proxy:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
     environment:
       - LDAP_URL=ldap://carbonio-openldap:1389
       - LDAP_ROOT_PASSWORD=qh6hWZvc
@@ -400,9 +401,9 @@ services:
         condition: service_healthy
 
   carbonio-tasks:
+    image: ${CARBONIO_TASKS_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-tasks-ce:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
     labels:
       - "servicePort=10000"
-    image: ${CARBONIO_TASKS_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-tasks-ce:devel}
     restart: on-failure
     environment:
       - CARBONIO_TASKS_HOST=0.0.0.0
@@ -424,7 +425,7 @@ services:
       - "localhost:host-gateway"
 
   carbonio-message-dispatcher-db:
-    image: ${CARBONIO_MESSAGE_DISPATCHER_CE_DB_IMAGE:-registry.dev.zextras.com/dev/carbonio-message-dispatcher-ce-db:latest}
+    image: ${CARBONIO_MESSAGE_DISPATCHER_CE_DB_IMAGE:-registry.dev.zextras.com/dev/carbonio-message-dispatcher-ce-db:${CARBONIO_GLOBAL_IMAGES_TAG:-latest}}
     restart: unless-stopped
     environment:
       POSTGRES_DB: carbonio-message-dispatcher-db
@@ -444,9 +445,9 @@ services:
       start_period: 30s
 
   carbonio-message-dispatcher:
+    image: ${CARBONIO_MESSAGE_DISPATCHER_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-message-dispatcher-ce:${CARBONIO_GLOBAL_IMAGES_TAG:-latest}}
     labels:
       - "servicePort=10000"
-    image: ${CARBONIO_MESSAGE_DISPATCHER_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-message-dispatcher-ce:latest}
     restart: unless-stopped
     depends_on:
       event-listener:
@@ -463,16 +464,16 @@ services:
       start_period: 60s
 
   carbonio-videoserver:
-    image: ${CARBONIO_VIDEOSERVER_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-videoserver-ce:devel}
+    image: ${CARBONIO_VIDEOSERVER_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-videoserver-ce:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
     platform: linux/amd64
     restart: unless-stopped
     volumes:
       - shared-videoserver:/var/lib/videoserver
 
   carbonio-ws-collaboration:
+    image: ${CARBONIO_WSC_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-ws-collaboration-ce:${CARBONIO_GLOBAL_IMAGES_TAG:-latest}}
     labels:
       - "servicePort=8080"
-    image: ${CARBONIO_WSC_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-ws-collaboration-ce:latest}
     restart: unless-stopped
     environment:
       - TZ=UTC

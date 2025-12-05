@@ -48,6 +48,10 @@ To start in advanced mode (e.g.: files):
 ```bash
 ./start-files.sh --advanced
 ```
+To add monitoring:
+```bash
+./start-mails.sh --monitoring
+```
 
 Stop:
 
