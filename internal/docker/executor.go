@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime"
 	"runtime/debug"
 	"strings"
 	"syscall"
@@ -36,19 +37,37 @@ func (e *Executor) CleanupAllQuiet() error {
 	return e.cleanupAllWithOutput(false)
 }
 
+func isNonLinuxPlatform() bool {
+	return runtime.GOOS != "linux"
+}
+
+func getDockerEnv() []string {
+	env := os.Environ()
+	if isNonLinuxPlatform() {
+		env = append(env, "DOCKER_DEFAULT_PLATFORM=linux/amd64")
+		log.Printf("Non-Linux platform detected (%s), setting DOCKER_DEFAULT_PLATFORM=linux/amd64", runtime.GOOS)
+	}
+	return env
+}
+
+func (e *Executor) createDockerCommand(args ...string) *exec.Cmd {
+	cmd := exec.Command("docker", args...)
+	cmd.Dir = e.workDir
+	cmd.Env = getDockerEnv()
+	return cmd
+}
+
 func (e *Executor) cleanupAllWithOutput(showOutput bool) error {
 	log.Println("Running complete cleanup (CE + Advanced)...")
 
 	log.Println("Stopping containers gracefully...")
-	stopArgs := []string{
+	stopCmd := e.createDockerCommand(
 		"compose",
 		"-f", "docker-compose.yaml",
 		"-f", "docker-compose-advanced.yaml",
 		"stop",
 		"--timeout", "60",
-	}
-	stopCmd := exec.Command("docker", stopArgs...)
-	stopCmd.Dir = e.workDir
+	)
 	if showOutput {
 		stopCmd.Stdout = os.Stdout
 		stopCmd.Stderr = os.Stderr
@@ -67,17 +86,14 @@ func (e *Executor) cleanupAllWithOutput(showOutput bool) error {
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		log.Printf("Cleanup attempt %d/%d...", attempt, maxRetries)
 
-		args := []string{
+		cmd := e.createDockerCommand(
 			"compose",
 			"-f", "docker-compose.yaml",
 			"-f", "docker-compose-advanced.yaml",
 			"down",
 			"--remove-orphans",
 			"--timeout", "30",
-		}
-
-		cmd := exec.Command("docker", args...)
-		cmd.Dir = e.workDir
+		)
 		if showOutput {
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
@@ -117,7 +133,7 @@ func (e *Executor) cleanupAllWithOutput(showOutput bool) error {
 		"consul-data",
 	}
 	for _, volName := range consulVolumeNames {
-		rmCmd := exec.Command("docker", "volume", "rm", "-f", volName)
+		rmCmd := e.createDockerCommand("volume", "rm", "-f", volName)
 		if err := rmCmd.Run(); err != nil {
 			log.Printf("Volume %s removal: %v (may not exist, this is fine)", volName, err)
 		} else {
@@ -127,13 +143,7 @@ func (e *Executor) cleanupAllWithOutput(showOutput bool) error {
 
 	log.Println("Running docker system prune...")
 	for attempt := 1; attempt <= 2; attempt++ {
-		pruneArgs := []string{
-			"system",
-			"prune",
-			"-f",
-		}
-		pruneCmd := exec.Command("docker", pruneArgs...)
-		pruneCmd.Dir = e.workDir
+		pruneCmd := e.createDockerCommand("system", "prune", "-f")
 		if showOutput {
 			pruneCmd.Stdout = os.Stdout
 			pruneCmd.Stderr = os.Stderr
@@ -159,7 +169,10 @@ func (e *Executor) cleanupAllWithOutput(showOutput bool) error {
 func (e *Executor) Execute(envVars string, cmdParts []string, outputChan chan string) error {
 	cmd := exec.Command(cmdParts[0], cmdParts[1:]...)
 	cmd.Dir = e.workDir
-	cmd.Env = append(os.Environ(), parseEnvVars(envVars)...)
+
+	env := getDockerEnv()
+	env = append(env, parseEnvVars(envVars)...)
+	cmd.Env = env
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
