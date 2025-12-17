@@ -111,6 +111,20 @@ func (e *Executor) cleanupAllWithOutput(showOutput bool) error {
 		log.Printf("Warning: compose down failed after %d attempts: %v (continuing to prune)", maxRetries, lastErr)
 	}
 
+	log.Println("Removing consul data volume to prevent rejoin errors...")
+	consulVolumeNames := []string{
+		"carbonio_consul-data",
+		"consul-data",
+	}
+	for _, volName := range consulVolumeNames {
+		rmCmd := exec.Command("docker", "volume", "rm", "-f", volName)
+		if err := rmCmd.Run(); err != nil {
+			log.Printf("Volume %s removal: %v (may not exist, this is fine)", volName, err)
+		} else {
+			log.Printf("Volume %s removed successfully", volName)
+		}
+	}
+
 	log.Println("Running docker system prune...")
 	for attempt := 1; attempt <= 2; attempt++ {
 		pruneArgs := []string{
