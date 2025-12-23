@@ -1,6 +1,6 @@
 # Carbonio Docker CLI
 
-A multiplatform CLI based on [carbonio-base-dockerization](https://github.com/zextras/carbonio-base-dockerization) created to simplify a granular startup
+A multiplatform CLI based on [carbonio-dockerization](https://github.com/zextras/carbonio-dockerization) created to simplify a granular startup
 process without having to handle 5-line long docker commands.
 
 Download from [here](https://github.com/galvagnimatteo/carbonio-docker-cli/releases).
@@ -42,10 +42,10 @@ All the assumptions on the current base dockerization structure are defined in t
 5) Cleanup is always performed on exit/on start
 
 ### Project structure
-The CLI includes the entirety of carbonio-base-dockerization inside the embedded directory using 
+The CLI includes the entirety of carbonio-dockerization inside the embedded directory using
 a git subtree and thus the dockerization can be updated with:
 
-```git subtree pull --prefix=internal/embedded/carbonio-base-dockerization carbonio-base-dockerization devel --squash```
+```git subtree pull --prefix=internal/embedded/carbonio-dockerization carbonio-dockerization devel --squash```
 
 This is really useful for compiling a self-extracting file that can then work on a static dockerization without it being subject to updates that may break it.
 

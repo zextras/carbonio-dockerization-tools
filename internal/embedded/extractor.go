@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -36,7 +37,14 @@ func (e *Extractor) EnsureExtracted() error {
 	if _, err := os.Stat(e.workDir); err == nil {
 		log.Printf("Removing existing workdir: %s", e.workDir)
 		if err := os.RemoveAll(e.workDir); err != nil {
-			return fmt.Errorf("failed to remove existing workdir: %w", err)
+			log.Printf("Normal removal failed: %v, trying docker cleanup...", err)
+			if err := e.dockerCleanup(); err != nil {
+				log.Printf("Docker cleanup failed: %v", err)
+				return fmt.Errorf("failed to remove existing workdir (try 'sudo rm -rf %s'): %w", e.workDir, err)
+			}
+			if err := os.RemoveAll(e.workDir); err != nil {
+				return fmt.Errorf("failed to remove workdir after docker cleanup: %w", err)
+			}
 		}
 		log.Println("Existing workdir removed successfully")
 	} else if !os.IsNotExist(err) {
@@ -45,6 +53,18 @@ func (e *Extractor) EnsureExtracted() error {
 	log.Println("Extracting fresh workdir...")
 	return e.extractAll()
 }
+
+func (e *Extractor) dockerCleanup() error {
+	log.Printf("Using docker to clean up files in: %s", e.workDir)
+	cmd := exec.Command("docker", "run", "--rm", "-v", e.workDir+":/cleanup", "busybox", "sh", "-c", "rm -rf /cleanup/* /cleanup/.[!.]* 2>/dev/null || true")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("Docker cleanup command output: %s", string(output))
+		return fmt.Errorf("docker cleanup failed: %w", err)
+	}
+	log.Println("Docker cleanup completed successfully")
+	return nil
+}
 func (e *Extractor) extractAll() error {
 	log.Printf("Creating workdir: %s", e.workDir)
 	if err := os.MkdirAll(e.workDir, 0755); err != nil {
@@ -52,14 +72,14 @@ func (e *Extractor) extractAll() error {
 	}
 	fileCount := 0
 	dirCount := 0
-	err := fs.WalkDir(EmbeddedFiles, "carbonio-base-dockerization", func(path string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(EmbeddedFiles, "carbonio-dockerization", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if path == "carbonio-base-dockerization" {
+		if path == "carbonio-dockerization" {
 			return nil
 		}
-		relPath := strings.TrimPrefix(path, "carbonio-base-dockerization/")
+		relPath := strings.TrimPrefix(path, "carbonio-dockerization/")
 		normalizedPath := filepath.FromSlash(relPath)
 		targetPath := filepath.Join(e.workDir, normalizedPath)
 		if d.IsDir() {

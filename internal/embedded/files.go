@@ -2,5 +2,5 @@ package embedded
 
 import "embed"
 
-//go:embed all:carbonio-base-dockerization
+//go:embed all:carbonio-dockerization
 var EmbeddedFiles embed.FS
