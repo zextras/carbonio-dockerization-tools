@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"carbonio-docker-cli/internal/config"
 	"carbonio-docker-cli/internal/parser"
 	"fmt"
 	"strings"
@@ -9,8 +10,8 @@ import (
 type CommandBuilder struct {
 	workDir         string
 	edition         parser.Edition
-	backendServices map[string]string
-	frontendImages  map[string]string
+	backendServices map[string]*config.ImageConfig
+	frontendImages  map[string]*config.ImageConfig
 	parsedConfig    *parser.ParsedConfig
 }
 
@@ -18,16 +19,16 @@ func NewCommandBuilder(workDir string, edition parser.Edition, parsedConfig *par
 	return &CommandBuilder{
 		workDir:         workDir,
 		edition:         edition,
-		backendServices: make(map[string]string),
-		frontendImages:  make(map[string]string),
+		backendServices: make(map[string]*config.ImageConfig),
+		frontendImages:  make(map[string]*config.ImageConfig),
 		parsedConfig:    parsedConfig,
 	}
 }
-func (b *CommandBuilder) SetBackendService(serviceName, tag string) {
-	b.backendServices[serviceName] = tag
+func (b *CommandBuilder) SetBackendService(serviceName string, imgConfig *config.ImageConfig) {
+	b.backendServices[serviceName] = imgConfig
 }
-func (b *CommandBuilder) SetFrontendImage(uiName, tag string) {
-	b.frontendImages[uiName] = tag
+func (b *CommandBuilder) SetFrontendImage(uiName string, imgConfig *config.ImageConfig) {
+	b.frontendImages[uiName] = imgConfig
 }
 func (b *CommandBuilder) Build() (string, []string, error) {
 	var envVars []string
@@ -38,36 +39,31 @@ func (b *CommandBuilder) Build() (string, []string, error) {
 		composeFiles = append(composeFiles, "docker-compose-advanced.yaml")
 	}
 	for serviceName, svc := range b.parsedConfig.BackendServices {
-		if tag, selected := b.backendServices[serviceName]; selected {
+		if imgConfig, selected := b.backendServices[serviceName]; selected {
 			if svc.EnvVar != "" {
-				registry := extractRegistry(svc.DefaultImage)
-				envVars = append(envVars, fmt.Sprintf("%s=%s:%s", svc.EnvVar, registry, tag))
+				envVars = append(envVars, fmt.Sprintf("%s=%s:%s", svc.EnvVar, imgConfig.Image, imgConfig.Tag))
 			}
 			selectedServices = append(selectedServices, serviceName)
 		}
 	}
+	for _, autoIncludedName := range parser.GlobalDockerConfig.AutoIncludedServices {
+		if _, exists := b.parsedConfig.BackendServices[autoIncludedName]; exists {
+			selectedServices = append(selectedServices, autoIncludedName)
+		}
+	}
 	for uiName, ui := range b.parsedConfig.FrontendImages {
-		tag, exists := b.frontendImages[uiName]
-		if !exists || tag == "disabled" {
+		imgConfig, exists := b.frontendImages[uiName]
+		if !exists || imgConfig == nil || imgConfig.Tag == "disabled" {
 			envVars = append(envVars, fmt.Sprintf("%s=disabled", ui.EnvVar))
 		} else {
-			registry := extractRegistry(ui.DefaultImage)
-			envVars = append(envVars, fmt.Sprintf("%s=%s:%s", ui.EnvVar, registry, tag))
+			envVars = append(envVars, fmt.Sprintf("%s=%s:%s", ui.EnvVar, imgConfig.Image, imgConfig.Tag))
 		}
 	}
 	cmdParts := []string{"docker", "compose"}
 	for _, file := range composeFiles {
 		cmdParts = append(cmdParts, "-f", file)
 	}
-	cmdParts = append(cmdParts, "up", "--build")
+	cmdParts = append(cmdParts, "up", "--build", "--pull", "missing")
 	cmdParts = append(cmdParts, selectedServices...)
 	return strings.Join(envVars, " "), cmdParts, nil
-}
-func extractRegistry(imageURL string) string {
-	lastColon := strings.LastIndex(imageURL, ":")
-	lastSlash := strings.LastIndex(imageURL, "/")
-	if lastColon > lastSlash && lastColon != -1 {
-		return imageURL[:lastColon]
-	}
-	return imageURL
 }

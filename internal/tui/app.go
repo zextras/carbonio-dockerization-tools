@@ -35,8 +35,8 @@ type App struct {
 	userConfig      *config.UserConfig
 	edition         parser.Edition
 	executor        *docker.Executor
-	pendingBackend  map[string]string
-	pendingFrontend map[string]string
+	pendingBackend  map[string]*config.ImageConfig
+	pendingFrontend map[string]*config.ImageConfig
 }
 
 func NewApp(workDir, configFile string) *App {
@@ -65,21 +65,21 @@ func (a *App) Run() error {
 }
 func (a *App) runWithConfig(filePath string) error {
 	log.Printf("=== Running with config file: %s ===", filePath)
-	parsedConfig, err := parser.ParseAll(a.workDir, parser.EditionCE)
+	editionStr, err := config.LoadConfigEdition(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to read config edition: %w", err)
+	}
+	edition := parser.EditionCE
+	if editionStr == "advanced" {
+		edition = parser.EditionAdvanced
+	}
+	parsedConfig, err := parser.ParseAll(a.workDir, edition)
 	if err != nil {
 		return fmt.Errorf("failed to parse docker files: %w", err)
 	}
 	userConfig, err := config.LoadConfig(filePath, parsedConfig)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
-	}
-	edition := parser.EditionCE
-	if userConfig.Carbonio.Edition == "advanced" {
-		edition = parser.EditionAdvanced
-	}
-	parsedConfig, err = parser.ParseAll(a.workDir, edition)
-	if err != nil {
-		return fmt.Errorf("failed to parse docker files: %w", err)
 	}
 	a.parsedConfig = parsedConfig
 	a.userConfig = userConfig
@@ -88,13 +88,13 @@ func (a *App) runWithConfig(filePath string) error {
 	a.pendingFrontend = userConfig.Carbonio.Frontend
 	log.Println("Building docker command from config...")
 	builder := docker.NewCommandBuilder(a.workDir, a.edition, a.parsedConfig)
-	for serviceName, tag := range a.pendingBackend {
-		builder.SetBackendService(serviceName, tag)
-		log.Printf("Backend: %s -> %s", serviceName, tag)
+	for serviceName, imgConfig := range a.pendingBackend {
+		builder.SetBackendService(serviceName, imgConfig)
+		log.Printf("Backend: %s -> %s:%s", serviceName, imgConfig.Image, imgConfig.Tag)
 	}
-	for uiName, tag := range a.pendingFrontend {
-		builder.SetFrontendImage(uiName, tag)
-		log.Printf("Frontend: %s -> %s", uiName, tag)
+	for uiName, imgConfig := range a.pendingFrontend {
+		builder.SetFrontendImage(uiName, imgConfig)
+		log.Printf("Frontend: %s -> %s:%s", uiName, imgConfig.Image, imgConfig.Tag)
 	}
 	envVars, cmdParts, err := builder.Build()
 	if err != nil {
@@ -110,7 +110,7 @@ func (a *App) runWithConfig(filePath string) error {
 	}
 	return nil
 }
-func (a *App) buildVisibleServicesList(backendServices map[string]string) []string {
+func (a *App) buildVisibleServicesList(backendServices map[string]*config.ImageConfig) []string {
 	visibleServices := []string{}
 	for serviceName := range backendServices {
 		if !parser.GlobalDockerConfig.IsServiceHidden(serviceName) {
@@ -261,14 +261,14 @@ func (a *App) handleExecute() (tea.Model, tea.Cmd) {
 	log.Printf("Frontend images: %d", len(a.pendingFrontend))
 	builder := docker.NewCommandBuilder(a.workDir, a.edition, a.parsedConfig)
 	log.Println("Setting backend services...")
-	for serviceName, tag := range a.pendingBackend {
-		builder.SetBackendService(serviceName, tag)
-		log.Printf("  - %s: %s", serviceName, tag)
+	for serviceName, imgConfig := range a.pendingBackend {
+		builder.SetBackendService(serviceName, imgConfig)
+		log.Printf("  - %s: %s:%s", serviceName, imgConfig.Image, imgConfig.Tag)
 	}
 	log.Println("Setting frontend images...")
-	for uiName, tag := range a.pendingFrontend {
-		builder.SetFrontendImage(uiName, tag)
-		log.Printf("  - %s: %s", uiName, tag)
+	for uiName, imgConfig := range a.pendingFrontend {
+		builder.SetFrontendImage(uiName, imgConfig)
+		log.Printf("  - %s: %s:%s", uiName, imgConfig.Image, imgConfig.Tag)
 	}
 	log.Println("Building docker command...")
 	envVars, cmdParts, err := builder.Build()
@@ -288,7 +288,17 @@ func (a *App) handleExecute() (tea.Model, tea.Cmd) {
 }
 func (a *App) handleFilePickerChoice(filePath string) (tea.Model, tea.Cmd) {
 	log.Printf("=== File picker choice: %s ===", filePath)
-	parsedConfig, err := parser.ParseAll(a.workDir, parser.EditionCE)
+	editionStr, err := config.LoadConfigEdition(filePath)
+	if err != nil {
+		log.Printf("ERROR: Failed to read config edition: %v", err)
+		fmt.Printf("\n❌ Error reading config edition: %v\n", err)
+		return a, tea.Quit
+	}
+	edition := parser.EditionCE
+	if editionStr == "advanced" {
+		edition = parser.EditionAdvanced
+	}
+	parsedConfig, err := parser.ParseAll(a.workDir, edition)
 	if err != nil {
 		log.Printf("ERROR: Failed to parse docker files: %v", err)
 		fmt.Printf("\n❌ Error parsing docker files: %v\n", err)
@@ -298,16 +308,6 @@ func (a *App) handleFilePickerChoice(filePath string) (tea.Model, tea.Cmd) {
 	if err != nil {
 		log.Printf("ERROR: Failed to load config: %v", err)
 		fmt.Printf("\n❌ Error loading config: %v\n", err)
-		return a, tea.Quit
-	}
-	edition := parser.EditionCE
-	if userConfig.Carbonio.Edition == "advanced" {
-		edition = parser.EditionAdvanced
-	}
-	parsedConfig, err = parser.ParseAll(a.workDir, edition)
-	if err != nil {
-		log.Printf("ERROR: Failed to parse docker files: %v", err)
-		fmt.Printf("\n❌ Error parsing docker files: %v\n", err)
 		return a, tea.Quit
 	}
 	a.parsedConfig = parsedConfig

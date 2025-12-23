@@ -26,13 +26,15 @@ var (
 				Foreground(lipgloss.Color("#FFFFFF"))
 	lockedTagStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#666666"))
+	customImageStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#00CED1"))
 	inputStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#7D56F4"))
 )
 
 type ServicesConfirmedMsg struct {
-	Backend         map[string]string
-	Frontend        map[string]string
+	Backend         map[string]*config.ImageConfig
+	Frontend        map[string]*config.ImageConfig
 	VisibleServices []string
 }
 
@@ -40,6 +42,7 @@ type ServiceItem struct {
 	ServiceName  string
 	ImageBase    string
 	DefaultTag   string
+	CustomImage  string
 	CustomTag    string
 	Selected     bool
 	IsBackend    bool
@@ -56,6 +59,8 @@ type ServicesModel struct {
 	frontendItems      []*ServiceItem
 	cursor             int
 	editingTag         bool
+	editingCustom      bool
+	editingCustomPhase int // 0 = editing image, 1 = editing tag
 	editingIndex       int
 	editingBuffer      string
 	viewOffset         int
@@ -180,6 +185,9 @@ func (m *ServicesModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.editingTag {
 		return m.handleTagEdit(msg)
 	}
+	if m.editingCustom {
+		return m.handleCustomEdit(msg)
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.viewHeight = msg.Height - 8
@@ -216,6 +224,8 @@ func (m *ServicesModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toggleSelection()
 		case "e":
 			m.startTagEdit()
+		case "c":
+			m.startCustomEdit()
 		case "enter":
 			return m.confirm()
 		case "x":
@@ -260,8 +270,14 @@ func (m *ServicesModel) View() string {
 	s.WriteString("\n")
 	if m.editingTag {
 		s.WriteString(helpStyle.Render("Editing tag: type to modify • enter: confirm • esc: cancel"))
+	} else if m.editingCustom {
+		if m.editingCustomPhase == 0 {
+			s.WriteString(helpStyle.Render("Editing image: type to modify • enter: confirm and edit tag • esc: cancel"))
+		} else {
+			s.WriteString(helpStyle.Render("Editing tag: type to modify • enter: confirm • esc: cancel"))
+		}
 	} else {
-		s.WriteString(helpStyle.Render("↑/↓: navigate • g/G: top/bottom • space: toggle • e: edit tag • enter: start • x: export • q: quit"))
+		s.WriteString(helpStyle.Render("↑/↓: navigate • g/G: top/bottom • space: toggle • e: edit tag • c: custom image • enter: start • x: export • q: quit"))
 	}
 	s.WriteString("\n")
 	s.WriteString(helpStyle.Render(fmt.Sprintf("Item %d/%d", m.cursor+1, totalItems)))
@@ -280,11 +296,16 @@ func (m *ServicesModel) renderItem(index int, item *ServiceItem, maxNameLen int)
 	if item.IsRequired {
 		checkbox = "[●]"
 	}
+	imageBase := item.ImageBase
+	if item.CustomImage != "" {
+		imageBase = item.CustomImage
+	}
 	tag := item.DefaultTag
 	if item.CustomTag != "" {
 		tag = item.CustomTag
 	}
-	fullImageDisplay := fmt.Sprintf("%s:%s", item.ImageBase, tag)
+	isCustom := item.CustomImage != "" || item.CustomTag != ""
+	fullImageDisplay := fmt.Sprintf("%s:%s", imageBase, tag)
 	padding := maxNameLen - len(item.ServiceName) + 2
 	if item.IsBackend {
 		padding += 10
@@ -296,14 +317,20 @@ func (m *ServicesModel) renderItem(index int, item *ServiceItem, maxNameLen int)
 	if item.IsRequired {
 		namePart := requiredNameStyle.Render(fmt.Sprintf("%s %s %s", cursor, checkbox, item.ServiceName))
 		var imagePart string
-		if item.TagLocked {
+		if isCustom {
+			imagePart = customImageStyle.Render(fmt.Sprintf("(%s)", fullImageDisplay))
+		} else if item.TagLocked {
 			imagePart = lockedTagStyle.Render(fmt.Sprintf("(%s)", fullImageDisplay))
 		} else {
 			imagePart = requiredTagStyle.Render(fmt.Sprintf("(%s)", fullImageDisplay))
 		}
 		line = namePart + paddingStr + imagePart
 	} else {
-		if item.TagLocked {
+		if isCustom {
+			namePart := fmt.Sprintf("%s %s %s", cursor, checkbox, item.ServiceName)
+			imagePart := customImageStyle.Render(fmt.Sprintf("(%s)", fullImageDisplay))
+			line = namePart + paddingStr + imagePart
+		} else if item.TagLocked {
 			namePart := fmt.Sprintf("%s %s %s", cursor, checkbox, item.ServiceName)
 			imagePart := lockedTagStyle.Render(fmt.Sprintf("(%s)", fullImageDisplay))
 			line = namePart + paddingStr + imagePart
@@ -313,6 +340,13 @@ func (m *ServicesModel) renderItem(index int, item *ServiceItem, maxNameLen int)
 	}
 	if m.editingTag && m.editingIndex == index {
 		return selectedStyle.Render(line) + " ← " + inputStyle.Render(m.editingBuffer) + "\n"
+	}
+	if m.editingCustom && m.editingIndex == index {
+		editLabel := "image"
+		if m.editingCustomPhase == 1 {
+			editLabel = "tag"
+		}
+		return selectedStyle.Render(line) + " ← " + editLabel + ": " + inputStyle.Render(m.editingBuffer) + "\n"
 	}
 	if m.cursor == index {
 		return selectedStyle.Render(line) + "\n"
@@ -389,40 +423,107 @@ func (m *ServicesModel) handleTagEdit(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *ServicesModel) startCustomEdit() {
+	item := m.getCurrentItem()
+	if item == nil {
+		return
+	}
+	m.editingCustom = true
+	m.editingCustomPhase = 0
+	m.editingIndex = m.cursor
+	if item.CustomImage != "" {
+		m.editingBuffer = item.CustomImage
+	} else {
+		m.editingBuffer = item.ImageBase
+	}
+	log.Printf("Starting custom edit for %s: image=%s", item.ServiceName, m.editingBuffer)
+}
+
+func (m *ServicesModel) handleCustomEdit(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "enter":
+			item := m.getCurrentItem()
+			if item == nil {
+				m.editingCustom = false
+				m.editingIndex = -1
+				m.editingBuffer = ""
+				m.editingCustomPhase = 0
+				return m, nil
+			}
+			if m.editingCustomPhase == 0 {
+				item.CustomImage = m.editingBuffer
+				log.Printf("Custom image set for %s: %s", item.ServiceName, item.CustomImage)
+				m.editingCustomPhase = 1
+				if item.CustomTag != "" {
+					m.editingBuffer = item.CustomTag
+				} else {
+					m.editingBuffer = item.DefaultTag
+				}
+				log.Printf("Now editing tag for %s: %s", item.ServiceName, m.editingBuffer)
+			} else {
+				item.CustomTag = m.editingBuffer
+				log.Printf("Custom tag set for %s: %s", item.ServiceName, item.CustomTag)
+				m.editingCustom = false
+				m.editingIndex = -1
+				m.editingBuffer = ""
+				m.editingCustomPhase = 0
+			}
+		case "esc":
+			m.editingCustom = false
+			m.editingIndex = -1
+			m.editingBuffer = ""
+			m.editingCustomPhase = 0
+		case "backspace":
+			if len(m.editingBuffer) > 0 {
+				m.editingBuffer = m.editingBuffer[:len(m.editingBuffer)-1]
+			}
+		default:
+			if len(msg.String()) == 1 {
+				m.editingBuffer += msg.String()
+			}
+		}
+	}
+	return m, nil
+}
+
 func (m *ServicesModel) confirm() (tea.Model, tea.Cmd) {
 	log.Println("=== Confirm called ===")
-	backend := make(map[string]string)
-	frontend := make(map[string]string)
+	backend := make(map[string]*config.ImageConfig)
+	frontend := make(map[string]*config.ImageConfig)
 	visibleServices := []string{}
 	log.Printf("Building backend selection from %d visible items", len(m.backendItems))
 	for _, item := range m.backendItems {
 		if item.Selected {
+			image := item.ImageBase
+			if item.CustomImage != "" {
+				image = item.CustomImage
+			}
 			tag := item.DefaultTag
-			if item.CustomTag != "" && !item.TagLocked {
+			if item.CustomTag != "" {
 				tag = item.CustomTag
 			}
-			backend[item.ServiceName] = tag
+			backend[item.ServiceName] = &config.ImageConfig{Image: image, Tag: tag}
 			visibleServices = append(visibleServices, item.ServiceName)
-			log.Printf("  Backend: %s -> %s", item.ServiceName, tag)
-		}
-	}
-	for _, autoIncludedName := range parser.GlobalDockerConfig.AutoIncludedServices {
-		if autoIncludedSvc, exists := m.parsedConfig.BackendServices[autoIncludedName]; exists {
-			backend[autoIncludedName] = autoIncludedSvc.DefaultTag
-			log.Printf("  Auto-added service: %s -> %s", autoIncludedName, autoIncludedSvc.DefaultTag)
+			log.Printf("  Backend: %s -> %s:%s", item.ServiceName, image, tag)
 		}
 	}
 	log.Printf("Building frontend selection from %d visible items", len(m.frontendItems))
 	for _, item := range m.frontendItems {
+		image := item.ImageBase
+		if item.CustomImage != "" {
+			image = item.CustomImage
+		}
 		tag := item.DefaultTag
-		if item.CustomTag != "" && !item.TagLocked {
+		if item.CustomTag != "" {
 			tag = item.CustomTag
 		}
 		if !item.Selected {
 			tag = "disabled"
 		}
-		frontend[item.ServiceName] = tag
-		log.Printf("  Frontend: %s -> %s", item.ServiceName, tag)
+		frontend[item.ServiceName] = &config.ImageConfig{Image: image, Tag: tag}
+		log.Printf("  Frontend: %s -> %s:%s", item.ServiceName, image, tag)
 	}
 	log.Printf("Sending confirmation message with %d backend, %d frontend, %d visible services",
 		len(backend), len(frontend), len(visibleServices))
@@ -436,31 +537,34 @@ func (m *ServicesModel) confirm() (tea.Model, tea.Cmd) {
 }
 
 func (m *ServicesModel) exportConfig() (tea.Model, tea.Cmd) {
-	backend := make(map[string]string)
-	frontend := make(map[string]string)
+	backend := make(map[string]*config.ImageConfig)
+	frontend := make(map[string]*config.ImageConfig)
 	for _, item := range m.backendItems {
 		if item.Selected {
+			image := item.ImageBase
+			if item.CustomImage != "" {
+				image = item.CustomImage
+			}
 			tag := item.DefaultTag
-			if item.CustomTag != "" && !item.TagLocked {
+			if item.CustomTag != "" {
 				tag = item.CustomTag
 			}
-			backend[item.ServiceName] = tag
-		}
-	}
-	for _, autoIncludedName := range parser.GlobalDockerConfig.AutoIncludedServices {
-		if autoIncludedSvc, exists := m.parsedConfig.BackendServices[autoIncludedName]; exists {
-			backend[autoIncludedName] = autoIncludedSvc.DefaultTag
+			backend[item.ServiceName] = &config.ImageConfig{Image: image, Tag: tag}
 		}
 	}
 	for _, item := range m.frontendItems {
+		image := item.ImageBase
+		if item.CustomImage != "" {
+			image = item.CustomImage
+		}
 		tag := item.DefaultTag
-		if item.CustomTag != "" && !item.TagLocked {
+		if item.CustomTag != "" {
 			tag = item.CustomTag
 		}
 		if !item.Selected {
 			tag = "disabled"
 		}
-		frontend[item.ServiceName] = tag
+		frontend[item.ServiceName] = &config.ImageConfig{Image: image, Tag: tag}
 	}
 	userConfig := config.CreateUserConfig(string(m.edition), backend, frontend)
 	filename := "carbonio-config.yaml"

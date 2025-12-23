@@ -7,6 +7,21 @@ import (
 	"os"
 )
 
+func LoadConfigEdition(filePath string) (string, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read config file: %w", err)
+	}
+	var config UserConfig
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return "", fmt.Errorf("failed to parse YAML: %w", err)
+	}
+	if config.Carbonio.Edition != "ce" && config.Carbonio.Edition != "advanced" {
+		return "", fmt.Errorf("invalid edition: %s (must be 'ce' or 'advanced')", config.Carbonio.Edition)
+	}
+	return config.Carbonio.Edition, nil
+}
+
 func LoadConfig(filePath string, parsedConfig *parser.ParsedConfig) (*UserConfig, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
@@ -19,16 +34,25 @@ func LoadConfig(filePath string, parsedConfig *parser.ParsedConfig) (*UserConfig
 	if config.Carbonio.Edition != "ce" && config.Carbonio.Edition != "advanced" {
 		return nil, fmt.Errorf("invalid edition: %s (must be 'ce' or 'advanced')", config.Carbonio.Edition)
 	}
-	for serviceName := range config.Carbonio.Backend {
+	for serviceName, imgConfig := range config.Carbonio.Backend {
 		if _, exists := parsedConfig.BackendServices[serviceName]; !exists {
 			return nil, fmt.Errorf("backend service '%s' in config file not found in docker-compose (config may be outdated)", serviceName)
 		}
+		if imgConfig == nil || imgConfig.Image == "" {
+			return nil, fmt.Errorf("backend service '%s' has empty image", serviceName)
+		}
+		if imgConfig.Tag == "" {
+			return nil, fmt.Errorf("backend service '%s' has empty tag", serviceName)
+		}
 	}
-	for uiName, tag := range config.Carbonio.Frontend {
+	for uiName, imgConfig := range config.Carbonio.Frontend {
 		if _, exists := parsedConfig.FrontendImages[uiName]; !exists {
 			return nil, fmt.Errorf("frontend UI '%s' in config file not found in Dockerfile (config may be outdated)", uiName)
 		}
-		if tag == "" {
+		if imgConfig == nil || imgConfig.Image == "" {
+			return nil, fmt.Errorf("frontend UI '%s' has empty image", uiName)
+		}
+		if imgConfig.Tag == "" {
 			return nil, fmt.Errorf("frontend UI '%s' has empty tag", uiName)
 		}
 	}
@@ -41,9 +65,11 @@ func LoadConfig(filePath string, parsedConfig *parser.ParsedConfig) (*UserConfig
 	}
 	for uiName, ui := range parsedConfig.FrontendImages {
 		if ui.IsProxy {
-			if tag, exists := config.Carbonio.Frontend[uiName]; !exists {
+			imgConfig, exists := config.Carbonio.Frontend[uiName]
+			if !exists {
 				return nil, fmt.Errorf("proxy UI '%s' is missing from config file", uiName)
-			} else if tag == "disabled" {
+			}
+			if imgConfig != nil && imgConfig.Tag == "disabled" {
 				return nil, fmt.Errorf("proxy UI '%s' cannot be disabled", uiName)
 			}
 		}

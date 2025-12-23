@@ -33,6 +33,7 @@ const (
 	ServiceStateUnknown ServiceState = iota
 	ServiceStatePulling
 	ServiceStateCreating
+	ServiceStateWaitingDeps
 	ServiceStateStarting
 	ServiceStateRunning
 	ServiceStateError
@@ -44,6 +45,8 @@ func (s ServiceState) String() string {
 		return "🔄 Pulling"
 	case ServiceStateCreating:
 		return "🔨 Creating"
+	case ServiceStateWaitingDeps:
+		return "⏳ Deps"
 	case ServiceStateStarting:
 		return "⏳ Starting"
 	case ServiceStateRunning:
@@ -225,7 +228,7 @@ func (m *MonitorModel) fetchDockerStates() map[string]ServiceState {
 				newState = ServiceStateRunning
 			}
 		case "created":
-			newState = ServiceStateCreating
+			newState = ServiceStateWaitingDeps
 		case "restarting":
 			newState = ServiceStateStarting
 		case "paused":
@@ -389,7 +392,7 @@ func (m *MonitorModel) parseLogLine(line string) {
 		} else if strings.Contains(lineLower, "creating") {
 			newState = ServiceStateCreating
 		} else if strings.Contains(lineLower, "created") {
-			newState = ServiceStateCreating
+			newState = ServiceStateWaitingDeps
 		} else if strings.Contains(lineLower, "starting") {
 			newState = ServiceStateStarting
 		} else if strings.Contains(lineLower, "started") {
