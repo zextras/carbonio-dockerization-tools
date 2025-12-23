@@ -33,7 +33,6 @@ const (
 	ServiceStateUnknown ServiceState = iota
 	ServiceStatePulling
 	ServiceStateCreating
-	ServiceStateWaitingDeps
 	ServiceStateStarting
 	ServiceStateRunning
 	ServiceStateError
@@ -45,8 +44,6 @@ func (s ServiceState) String() string {
 		return "🔄 Pulling"
 	case ServiceStateCreating:
 		return "🔨 Creating"
-	case ServiceStateWaitingDeps:
-		return "⏳ Deps"
 	case ServiceStateStarting:
 		return "⏳ Starting"
 	case ServiceStateRunning:
@@ -181,8 +178,7 @@ func (m *MonitorModel) pollDockerState() tea.Cmd {
 func (m *MonitorModel) fetchDockerStates() map[string]ServiceState {
 	states := make(map[string]ServiceState)
 
-	cmd := exec.Command("docker", "compose", "-f", "docker-compose.yaml", "-f", "docker-compose-advanced.yaml", "ps", "--format", "json")
-	cmd.Dir = m.workDir
+	cmd := exec.Command("docker", "compose", "--project-name", "carbonio", "ps", "--format", "json")
 	output, err := cmd.Output()
 	if err != nil {
 		log.Printf("Failed to fetch docker states: %v", err)
@@ -228,7 +224,7 @@ func (m *MonitorModel) fetchDockerStates() map[string]ServiceState {
 				newState = ServiceStateRunning
 			}
 		case "created":
-			newState = ServiceStateWaitingDeps
+			newState = ServiceStateStarting
 		case "restarting":
 			newState = ServiceStateStarting
 		case "paused":
@@ -392,7 +388,7 @@ func (m *MonitorModel) parseLogLine(line string) {
 		} else if strings.Contains(lineLower, "creating") {
 			newState = ServiceStateCreating
 		} else if strings.Contains(lineLower, "created") {
-			newState = ServiceStateWaitingDeps
+			newState = ServiceStateStarting
 		} else if strings.Contains(lineLower, "starting") {
 			newState = ServiceStateStarting
 		} else if strings.Contains(lineLower, "started") {
