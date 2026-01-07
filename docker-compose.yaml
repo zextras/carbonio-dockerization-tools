@@ -424,44 +424,43 @@ services:
     extra_hosts:
       - "localhost:host-gateway"
 
-  carbonio-message-dispatcher-db:
-    image: ${CARBONIO_MESSAGE_DISPATCHER_CE_DB_IMAGE:-registry.dev.zextras.com/dev/carbonio-message-dispatcher-ce-db:${CARBONIO_GLOBAL_IMAGES_TAG:-latest}}
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: carbonio-message-dispatcher-db
-      POSTGRES_USER: carbonio-message-dispatcher-db
-      POSTGRES_PASSWORD: password
-    volumes:
-      - carbonio-message-dispatcher_data:/var/lib/postgresql/data
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -U carbonio-message-dispatcher-db -d carbonio-message-dispatcher-db",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-
   carbonio-message-dispatcher:
-    image: ${CARBONIO_MESSAGE_DISPATCHER_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-message-dispatcher-ce:${CARBONIO_GLOBAL_IMAGES_TAG:-latest}}
+    image: ${CARBONIO_MESSAGE_DISPATCHER_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-message-dispatcher-ce:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
     labels:
       - "servicePort=10000"
     restart: unless-stopped
+    environment:
+      - CARBONIO_POSTGRES_HOST=carbonio-postgres
+      - CARBONIO_POSTGRES_PORT=5432
+      # Mongoose doesn't read from consul
+      - CARBONIO_POSTGRES_DB_NAME=carbonio-message-dispatcher-db
+      - CARBONIO_POSTGRES_DB_USERNAME=admin
+      - CARBONIO_POSTGRES_DB_PASSWORD=admin
+      # GraphQL API credentials
+      - CARBONIO_GRAPHQL_API_USERNAME=admin
+      - CARBONIO_GRAPHQL_API_PASSWORD=admin-password
+      # Auth service
+      - CARBONIO_MESSAGE_DISPATCHER_AUTH_HOST=127.0.0.1
+      - CARBONIO_MESSAGE_DISPATCHER_AUTH_PORT=10002
+      - CARBONIO_USER_MANAGEMENT_HOST=carbonio-user-management
+      - CARBONIO_USER_MANAGEMENT_PORT=10000
     depends_on:
       event-listener:
         condition: service_started
+      consul:
+        condition: service_healthy
       carbonio-postgres:
         condition: service_healthy
-      carbonio-message-dispatcher-db:
-        condition: service_healthy
+      consul-register:
+        condition: service_completed_successfully
+    extra_hosts:
+      - "localhost:host-gateway"
     healthcheck:
-      test: ["CMD", "mongooseimctl", "status"]
+      test: [ "CMD", "mongooseimctl", "status" ]
       interval: 15s
       timeout: 10s
       retries: 3
-      start_period: 60s
+      start_period: 90s
 
   carbonio-videoserver:
     image: ${CARBONIO_VIDEOSERVER_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-videoserver-ce:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
@@ -480,8 +479,6 @@ services:
       - APP_ENVIRONMENT=docker
       - DATABASE_JDBC_DRIVER=org.postgresql.Driver
       - DATABASE_JDBC_URL=jdbc:postgresql://carbonio-postgres:5432/carbonio-ws-collaboration-db
-      - DATABASE_USERNAME=admin
-      - DATABASE_PASSWORD=admin
       - EVENT_DISPATCHER_HOST=carbonio-message-broker
       - EVENT_DISPATCHER_PORT=10000
       - EVENT_DISPATCHER_USER_USERNAME=guest
@@ -531,8 +528,6 @@ volumes:
     name: carbonio-postgres-data
   storages_data:
     name: carbonio-storages-data
-  carbonio-message-dispatcher_data:
-    name: carbonio_message_dispatcher_data
   carbonio-message-broker_data:
     name: carbonio_message-broker_data
   shared-videoserver:

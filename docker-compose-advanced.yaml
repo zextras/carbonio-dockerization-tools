@@ -73,11 +73,6 @@ services:
     volumes:
       - carbonio-message-broker_data_advanced:/var/lib/rabbitmq
 
-  carbonio-message-dispatcher-db:
-    image: ${CARBONIO_MESSAGE_DISPATCHER_DB_IMAGE:-registry.dev.zextras.com/dev/carbonio-message-dispatcher-db:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
-    volumes:
-      - carbonio-message-dispatcher_data_advanced:/var/lib/postgresql/data
-
   carbonio-message-dispatcher:
     image: ${CARBONIO_MESSAGE_DISPATCHER_IMAGE:-registry.dev.zextras.com/dev/carbonio-message-dispatcher:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
 
@@ -122,8 +117,6 @@ volumes:
     name: carbonio-postgres-data-advanced
   storages_data_advanced:
     name: carbonio-storages-data-advanced
-  carbonio-message-dispatcher_data_advanced:
-    name: carbonio_message_dispatcher_data_advanced
   carbonio-message-broker_data_advanced:
     name: carbonio_message-broker_data_advanced
   shared-videoserver-advanced:
