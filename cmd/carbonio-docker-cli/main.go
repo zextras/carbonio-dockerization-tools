@@ -30,6 +30,7 @@ const minDockerComposeVersion = "2.30.0"
 func main() {
 	var configFile string
 	var saveLogs bool
+	var headless bool
 	for i, arg := range os.Args[1:] {
 		switch arg {
 		case "--config-file":
@@ -38,6 +39,8 @@ func main() {
 			}
 		case "--save-logs":
 			saveLogs = true
+		case "--headless":
+			headless = true
 		}
 	}
 	if saveLogs {
@@ -56,6 +59,7 @@ func main() {
 	log.Printf("Version: %s, Commit: %s, Date: %s", version, commit, date)
 	log.Printf("Config file: %s", configFile)
 	log.Printf("Save logs: %v", saveLogs)
+	log.Printf("Headless: %v", headless)
 
 	fmt.Println("🔍 Checking Docker Compose version...")
 	if err := checkDockerComposeVersion(); err != nil {
@@ -73,7 +77,7 @@ func main() {
 	if err != nil {
 		log.Printf("Docker Engine version check warning: %v", err)
 	}
-	if needsConfirmation {
+	if needsConfirmation && !headless {
 		fmt.Println()
 		fmt.Print("Press Enter to continue or Ctrl+C to quit...")
 		var input string
@@ -108,7 +112,7 @@ func main() {
 	setupSignalHandler(workDir)
 
 	log.Println("Starting TUI application...")
-	app := tui.NewApp(workDir, configFile)
+	app := tui.NewApp(workDir, configFile, headless)
 	if err := app.Run(); err != nil {
 		log.Fatalf("Application error: %v", err)
 	}
