@@ -1,7 +1,6 @@
 package main
 
 import (
-	"carbonio-docker-cli/internal/docker"
 	"carbonio-docker-cli/internal/embedded"
 	"carbonio-docker-cli/internal/tui"
 	"fmt"
@@ -10,11 +9,9 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"os/signal"
 	"regexp"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -109,7 +106,7 @@ func main() {
 	log.Printf("Working directory: %s", extractor.GetWorkDir())
 
 	workDir := extractor.GetWorkDir()
-	setupSignalHandler(workDir)
+	// Signal handling is done by the executor in headless mode
 
 	log.Println("Starting TUI application...")
 	app := tui.NewApp(workDir, configFile, headless)
@@ -219,23 +216,3 @@ func checkRegistryConnectivity() error {
 	defer conn.Close()
 	return nil
 }
-
-func setupSignalHandler(workDir string) {
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-sigChan
-		log.Println("Received interrupt signal, cleaning up...")
-		fmt.Println("\n🧹 Cleaning up containers...")
-		executor := docker.NewExecutor(workDir)
-		if err := executor.CleanupAll(); err != nil {
-			log.Printf("Cleanup failed: %v", err)
-			fmt.Printf("Warning: Cleanup failed: %v\n", err)
-		} else {
-			fmt.Println("✓ Cleanup complete")
-			log.Println("Cleanup successful")
-		}
-		os.Exit(0)
-	}()
-}
-

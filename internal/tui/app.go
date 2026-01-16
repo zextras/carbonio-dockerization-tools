@@ -142,6 +142,14 @@ func (a *App) runHeadless(envVars string, cmdParts []string) error {
 
 	fmt.Println()
 	fmt.Println("Docker Compose process has exited.")
+
+	// Always run cleanup when exiting headless mode
+	fmt.Println("🧹 Running cleanup...")
+	if err := a.executor.CleanupAll(); err != nil {
+		log.Printf("Warning: cleanup failed: %v", err)
+	}
+	fmt.Println("✓ Cleanup complete")
+
 	return nil
 }
 func (a *App) buildVisibleServicesList(backendServices map[string]*config.ImageConfig) []string {

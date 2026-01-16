@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime"
-	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -63,6 +62,7 @@ func (e *Executor) cleanupAllWithOutput(showOutput bool) error {
 	log.Println("Stopping containers gracefully...")
 	stopCmd := e.createDockerCommand(
 		"compose",
+		"--project-name", "carbonio",
 		"-f", "docker-compose.yaml",
 		"-f", "docker-compose-advanced.yaml",
 		"stop",
@@ -88,6 +88,7 @@ func (e *Executor) cleanupAllWithOutput(showOutput bool) error {
 
 		cmd := e.createDockerCommand(
 			"compose",
+			"--project-name", "carbonio",
 			"-f", "docker-compose.yaml",
 			"-f", "docker-compose-advanced.yaml",
 			"down",
@@ -194,8 +195,11 @@ func (e *Executor) Execute(envVars string, cmdParts []string, outputChan chan st
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		sig := <-sigChan
-		log.Printf("!!! Signal received in executor: %v, initiating graceful shutdown...", sig)
-		e.StopAndCleanup()
+		log.Printf("!!! Signal received in executor: %v, killing docker compose process...", sig)
+		// Just kill the process - cleanup will be done by runHeadless
+		if e.cmd != nil && e.cmd.Process != nil {
+			e.cmd.Process.Kill()
+		}
 	}()
 
 	go func() {
@@ -239,13 +243,14 @@ func (e *Executor) Stop() error {
 
 func (e *Executor) StopAndCleanup() error {
 	log.Println("=== StopAndCleanup called ===")
-	log.Printf("Call stack:\n%s", string(debug.Stack()))
 
-	if err := e.Stop(); err != nil {
-		log.Printf("Warning: failed to stop process: %v", err)
+	// Kill the docker compose process forcefully to avoid conflict with cleanup
+	if e.cmd != nil && e.cmd.Process != nil {
+		log.Println("Killing docker compose process...")
+		e.cmd.Process.Kill()
 	}
 
-	time.Sleep(2 * time.Second)
+	time.Sleep(3 * time.Second)
 
 	return e.CleanupAllQuiet()
 }
