@@ -24,6 +24,7 @@ const (
 type App struct {
 	workDir         string
 	configFile      string
+	headless        bool
 	currentScreen   Screen
 	startupModel    *StartupModel
 	editionModel    *EditionModel
@@ -39,10 +40,11 @@ type App struct {
 	pendingFrontend map[string]*config.ImageConfig
 }
 
-func NewApp(workDir, configFile string) *App {
+func NewApp(workDir, configFile string, headless bool) *App {
 	return &App{
 		workDir:       workDir,
 		configFile:    configFile,
+		headless:      headless,
 		currentScreen: ScreenStartup,
 		executor:      docker.NewExecutor(workDir),
 	}
@@ -101,6 +103,13 @@ func (a *App) runWithConfig(filePath string) error {
 		return fmt.Errorf("failed to build command: %w", err)
 	}
 	log.Printf("Command built successfully")
+
+	// Headless mode: run docker compose directly without TUI
+	if a.headless {
+		return a.runHeadless(envVars, cmdParts)
+	}
+
+	// Interactive mode: use TUI
 	visibleServices := a.buildVisibleServicesList(a.pendingBackend)
 	a.currentScreen = ScreenMonitor
 	a.monitorModel = NewMonitorModel(a.executor, envVars, cmdParts, visibleServices, a.workDir)
@@ -108,6 +117,31 @@ func (a *App) runWithConfig(filePath string) error {
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("TUI error: %w", err)
 	}
+	return nil
+}
+
+func (a *App) runHeadless(envVars string, cmdParts []string) error {
+	fmt.Println("🚀 Starting Carbonio services in headless mode...")
+	fmt.Println("   Press Ctrl+C to stop and cleanup")
+	fmt.Println()
+
+	outputChan := make(chan string, 100)
+
+	// Start docker compose in a goroutine
+	go func() {
+		err := a.executor.Execute(envVars, cmdParts, outputChan)
+		if err != nil {
+			log.Printf("Docker execution error: %v", err)
+		}
+	}()
+
+	// Read output and print to stdout
+	for line := range outputChan {
+		fmt.Println(line)
+	}
+
+	fmt.Println()
+	fmt.Println("Docker Compose process has exited.")
 	return nil
 }
 func (a *App) buildVisibleServicesList(backendServices map[string]*config.ImageConfig) []string {

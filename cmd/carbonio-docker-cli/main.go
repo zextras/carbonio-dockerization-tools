@@ -24,9 +24,6 @@ var (
 	date    = "unknown"
 )
 
-// Global reference to the docker compose process for signal handling
-var dockerComposeCmd *exec.Cmd
-
 const registryHost = "registry.dev.zextras.com:443"
 const minDockerComposeVersion = "2.30.0"
 
@@ -62,6 +59,7 @@ func main() {
 	log.Printf("Version: %s, Commit: %s, Date: %s", version, commit, date)
 	log.Printf("Config file: %s", configFile)
 	log.Printf("Save logs: %v", saveLogs)
+	log.Printf("Headless: %v", headless)
 
 	fmt.Println("🔍 Checking Docker Compose version...")
 	if err := checkDockerComposeVersion(); err != nil {
@@ -113,17 +111,10 @@ func main() {
 	workDir := extractor.GetWorkDir()
 	setupSignalHandler(workDir)
 
-	if headless && configFile != "" {
-		log.Println("Starting in headless mode...")
-		if err := runHeadless(workDir, configFile); err != nil {
-			log.Fatalf("Headless mode error: %v", err)
-		}
-	} else {
-		log.Println("Starting TUI application...")
-		app := tui.NewApp(workDir, configFile)
-		if err := app.Run(); err != nil {
-			log.Fatalf("Application error: %v", err)
-		}
+	log.Println("Starting TUI application...")
+	app := tui.NewApp(workDir, configFile, headless)
+	if err := app.Run(); err != nil {
+		log.Fatalf("Application error: %v", err)
 	}
 	log.Println("=== Application finished ===")
 }
@@ -236,18 +227,6 @@ func setupSignalHandler(workDir string) {
 		<-sigChan
 		log.Println("Received interrupt signal, cleaning up...")
 		fmt.Println("\n🧹 Cleaning up containers...")
-
-		// Kill docker compose subprocess if running
-		if dockerComposeCmd != nil && dockerComposeCmd.Process != nil {
-			log.Println("Killing docker compose subprocess...")
-			// Send SIGTERM to the process group
-			syscall.Kill(-dockerComposeCmd.Process.Pid, syscall.SIGTERM)
-			// Wait a moment for graceful shutdown
-			time.Sleep(2 * time.Second)
-			// Force kill if still running
-			dockerComposeCmd.Process.Kill()
-		}
-
 		executor := docker.NewExecutor(workDir)
 		if err := executor.CleanupAll(); err != nil {
 			log.Printf("Cleanup failed: %v", err)
@@ -260,158 +239,3 @@ func setupSignalHandler(workDir string) {
 	}()
 }
 
-func runHeadless(workDir, configFile string) error {
-	log.Printf("=== Running headless with config: %s ===", configFile)
-
-	executor := docker.NewExecutor(workDir)
-
-	// Cleanup existing containers first
-	fmt.Println("🧹 Cleaning up existing containers...")
-	if err := executor.CleanupAll(); err != nil {
-		log.Printf("Warning: initial cleanup failed: %v", err)
-	}
-	fmt.Println("✓ Cleanup complete\n")
-
-	// Use CommandBuilder to get proper env vars and command
-	fmt.Println("📋 Loading configuration...")
-
-	editionStr, err := loadConfigEdition(configFile)
-	if err != nil {
-		return fmt.Errorf("failed to read config edition: %w", err)
-	}
-
-	// Import parser and config packages
-	edition := "ce"
-	if editionStr == "advanced" {
-		edition = "advanced"
-	}
-
-	fmt.Printf("   Edition: %s\n", edition)
-	fmt.Println("🚀 Starting Docker Compose in headless mode...")
-	fmt.Println("   Press Ctrl+C to stop and cleanup\n")
-
-	// Build the docker compose command with env vars from config
-	args := []string{"compose", "-f", "docker-compose.yaml"}
-	if edition == "advanced" {
-		args = append(args, "-f", "docker-compose-advanced.yaml")
-	}
-	args = append(args, "up")
-
-	// Read config and build env vars
-	envVars := buildEnvVarsFromConfig(configFile)
-	log.Printf("Environment variables: %s", envVars)
-
-	// Run docker compose with env vars
-	cmd := exec.Command("docker", args...)
-	cmd.Dir = workDir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	// Set process group so we can kill the entire group
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	// Parse and add env vars
-	env := os.Environ()
-	for _, v := range strings.Fields(envVars) {
-		env = append(env, v)
-	}
-	cmd.Env = env
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start docker compose: %w", err)
-	}
-
-	// Store global reference for signal handler
-	dockerComposeCmd = cmd
-
-	log.Printf("Docker Compose started with PID %d", cmd.Process.Pid)
-
-	// Wait for the process (it will be interrupted by signal handler)
-	err = cmd.Wait()
-	if err != nil {
-		log.Printf("Docker compose exited: %v", err)
-	}
-
-	return nil
-}
-
-func buildEnvVarsFromConfig(configFile string) string {
-	data, err := os.ReadFile(configFile)
-	if err != nil {
-		log.Printf("Failed to read config: %v", err)
-		return ""
-	}
-
-	content := string(data)
-	var envPairs []string
-
-	// Parse backend services
-	lines := strings.Split(content, "\n")
-	inBackend := false
-	currentService := ""
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-
-		if trimmed == "backend:" {
-			inBackend = true
-			continue
-		}
-		if trimmed == "frontend:" {
-			inBackend = false
-			continue
-		}
-
-		// Skip non-service lines
-		if strings.HasPrefix(trimmed, "#") || trimmed == "" {
-			continue
-		}
-		if strings.HasPrefix(trimmed, "version:") || strings.HasPrefix(trimmed, "edition:") || strings.HasPrefix(trimmed, "carbonio:") {
-			continue
-		}
-
-		// Service name (ends with :)
-		if strings.HasSuffix(trimmed, ":") && !strings.HasPrefix(trimmed, "image:") && !strings.HasPrefix(trimmed, "tag:") {
-			currentService = strings.TrimSuffix(trimmed, ":")
-			continue
-		}
-
-		// Image line
-		if strings.HasPrefix(trimmed, "image:") && currentService != "" {
-			image := strings.TrimSpace(strings.TrimPrefix(trimmed, "image:"))
-			envName := serviceToEnvName(currentService, inBackend)
-			if envName != "" {
-				envPairs = append(envPairs, fmt.Sprintf("%s_IMAGE=%s", envName, image))
-			}
-		}
-
-		// Tag line
-		if strings.HasPrefix(trimmed, "tag:") && currentService != "" {
-			tag := strings.TrimSpace(strings.TrimPrefix(trimmed, "tag:"))
-			envName := serviceToEnvName(currentService, inBackend)
-			if envName != "" {
-				envPairs = append(envPairs, fmt.Sprintf("%s_TAG=%s", envName, tag))
-			}
-		}
-	}
-
-	return strings.Join(envPairs, " ")
-}
-
-func serviceToEnvName(service string, isBackend bool) string {
-	// Convert service name to env var name
-	// e.g., carbonio-ws-collaboration -> CARBONIO_WS_COLLABORATION
-	name := strings.ToUpper(strings.ReplaceAll(service, "-", "_"))
-	return name
-}
-
-func loadConfigEdition(filePath string) (string, error) {
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return "", err
-	}
-	content := string(data)
-	if strings.Contains(content, "edition: advanced") {
-		return "advanced", nil
-	}
-	return "ce", nil
-}
