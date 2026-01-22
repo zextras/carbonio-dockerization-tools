@@ -7,6 +7,7 @@ ARG CARBONIO_FILES_UI_IMAGE
 ARG CARBONIO_TASKS_UI_IMAGE
 ARG CARBONIO_AUTH_UI_IMAGE
 ARG CARBONIO_WSC_UI_IMAGE
+ARG CARBONIO_STORAGES_UI_IMAGE
 ARG CARBONIO_LOGIN_UI_IMAGE
 ARG CARBONIO_ADMIN_CONSOLE_UI_IMAGE
 ARG CARBONIO_ADMIN_LOGIN_UI_IMAGE
@@ -25,6 +26,7 @@ RUN mkdir -p /opt/zextras/web/iris/carbonio-shell-ui \
              /opt/zextras/web/iris/carbonio-tasks-ui \
              /opt/zextras/web/iris/carbonio-auth-ui \
              /opt/zextras/web/iris/carbonio-ws-collaboration-ui \
+             /opt/zextras/web/iris/carbonio-storages-ui \
              /opt/zextras/web/login \
              /opt/zextras/admin/iris/carbonio-admin-console-ui \
              /opt/zextras/admin/login
@@ -46,6 +48,8 @@ FROM ${CARBONIO_FILES_UI_IMAGE} AS files-ui
 FROM ${CARBONIO_TASKS_UI_IMAGE} AS tasks-ui
 
 FROM ${CARBONIO_WSC_UI_IMAGE} AS wsc-ui
+
+FROM ${CARBONIO_STORAGES_UI_IMAGE} AS storages-ui
 
 FROM ${CARBONIO_LOGIN_UI_IMAGE} AS login-ui
 
@@ -74,6 +78,7 @@ COPY --from=contacts-ui /opt/zextras/web/iris/carbonio-contacts-ui /opt/zextras/
 COPY --from=files-ui /opt/zextras/web/iris/carbonio-files-ui /opt/zextras/web/iris/carbonio-files-ui
 COPY --from=tasks-ui /opt/zextras/web/iris/carbonio-tasks-ui /opt/zextras/web/iris/carbonio-tasks-ui
 COPY --from=wsc-ui /opt/zextras/web/iris/carbonio-ws-collaboration-ui /opt/zextras/web/iris/carbonio-ws-collaboration-ui
+COPY --from=storages-ui /opt/zextras/web/iris/carbonio-storages-ui /opt/zextras/web/iris/carbonio-storages-ui
 COPY --from=search-ui /opt/zextras/web/iris/carbonio-search-ui /opt/zextras/web/iris/carbonio-search-ui
 COPY --from=auth-ui /opt/zextras/web/iris/carbonio-auth-ui /opt/zextras/web/iris/carbonio-auth-ui
 # web login
@@ -99,6 +104,8 @@ COPY --from=webui-i18n /opt/zextras/web/iris/carbonio-search-ui/i18n /opt/zextra
 COPY --from=webui-i18n /opt/zextras/web/iris/carbonio-shell-ui/i18n /opt/zextras/web/iris/carbonio-shell-ui/i18n
 COPY --from=webui-i18n /opt/zextras/web/iris/carbonio-tasks-ui/i18n /opt/zextras/web/iris/carbonio-tasks-ui/i18n
 COPY --from=webui-i18n /opt/zextras/web/iris/carbonio-ws-collaboration-ui/i18n /opt/zextras/web/iris/carbonio-ws-collaboration-ui/i18n
+# TODO
+# COPY --from=webui-i18n /opt/zextras/web/iris/carbonio-storages-ui/i18n /opt/zextras/web/iris/carbonio-storages-ui/i18n
 
 # delete empty dirs
 RUN find /opt/zextras/web/iris -type d -empty -delete 2>/dev/null || true && \

@@ -193,13 +193,13 @@ services:
       start_period: 30s
 
   carbonio-storages:
-    image: carbonio-storages:local
+    image: ${CARBONIO_STORAGES_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-storages-ce:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
     labels:
       - "servicePort=10000"
-    build:
-      context: ./carbonio-storages
-      dockerfile: Dockerfile
     restart: on-failure
+    environment:
+      - STORAGES_PORT=10000
+      - STORAGES_PATH=/storage
     volumes:
       - storages_data:/storage
     depends_on:
@@ -305,6 +305,8 @@ services:
       - CARBONIO_STORAGES_PORT=10000
       - CARBONIO_USER_MANAGEMENT_HOST=carbonio-user-management
       - CARBONIO_USER_MANAGEMENT_PORT=10000
+      - CARBONIO_SERVICE_DISCOVER_HOST=consul
+      - CARBONIO_SERVICE_DISCOVER_PORT=8500
     depends_on:
       event-listener:
         condition: service_started
@@ -316,8 +318,6 @@ services:
         condition: service_started
       carbonio-user-management:
         condition: service_started
-    extra_hosts:
-      - "localhost:host-gateway"
 
   carbonio-composed-ui:
     # image: carbonio-composed-ui:local
@@ -335,6 +335,7 @@ services:
         CARBONIO_FILES_UI_IMAGE: ${CARBONIO_FILES_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-files-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
         CARBONIO_TASKS_UI_IMAGE: ${CARBONIO_TASKS_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-tasks-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
         CARBONIO_WSC_UI_IMAGE: ${CARBONIO_WSC_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-ws-collaboration-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+        CARBONIO_STORAGES_UI_IMAGE: ${CARBONIO_STORAGES_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-storages-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
         CARBONIO_LOGIN_UI_IMAGE: ${CARBONIO_LOGIN_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-login-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
         CARBONIO_ADMIN_CONSOLE_UI_IMAGE: ${CARBONIO_ADMIN_CONSOLE_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-admin-console-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
         CARBONIO_ADMIN_LOGIN_UI_IMAGE: ${CARBONIO_ADMIN_LOGIN_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-admin-login-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
@@ -456,7 +457,7 @@ services:
     extra_hosts:
       - "localhost:host-gateway"
     healthcheck:
-      test: [ "CMD", "mongooseimctl", "status" ]
+      test: ["CMD", "mongooseimctl", "status"]
       interval: 15s
       timeout: 10s
       retries: 3

@@ -171,6 +171,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" && a.currentScreen != ScreenMonitor {
+			log.Println("Ctrl+C pressed, cleaning up before exit...")
+			if err := a.executor.CleanupAll(); err != nil {
+				log.Printf("Cleanup failed: %v", err)
+			}
 			return a, tea.Quit
 		}
 	case StartupChoiceMsg:
