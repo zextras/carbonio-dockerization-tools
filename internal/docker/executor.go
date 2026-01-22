@@ -168,6 +168,10 @@ func (e *Executor) cleanupAllWithOutput(showOutput bool) error {
 }
 
 func (e *Executor) Execute(envVars string, cmdParts []string, outputChan chan string) error {
+	return e.ExecuteWithSignalHandler(envVars, cmdParts, outputChan, false)
+}
+
+func (e *Executor) ExecuteWithSignalHandler(envVars string, cmdParts []string, outputChan chan string, handleSignals bool) error {
 	cmd := exec.Command(cmdParts[0], cmdParts[1:]...)
 	cmd.Dir = e.workDir
 
@@ -191,16 +195,20 @@ func (e *Executor) Execute(envVars string, cmdParts []string, outputChan chan st
 
 	e.cmd = cmd
 
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		sig := <-sigChan
-		log.Printf("!!! Signal received in executor: %v, killing docker compose process...", sig)
-		// Just kill the process - cleanup will be done by runHeadless
-		if e.cmd != nil && e.cmd.Process != nil {
-			e.cmd.Process.Kill()
-		}
-	}()
+	// Only register signal handler in headless mode
+	// In TUI mode, Bubbletea handles Ctrl+C and calls StopAndCleanup
+	if handleSignals {
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+		go func() {
+			sig := <-sigChan
+			log.Printf("!!! Signal received in executor: %v, killing docker compose process...", sig)
+			// Just kill the process - cleanup will be done by runHeadless
+			if e.cmd != nil && e.cmd.Process != nil {
+				e.cmd.Process.Kill()
+			}
+		}()
+	}
 
 	go func() {
 		scanner := bufio.NewScanner(stdout)

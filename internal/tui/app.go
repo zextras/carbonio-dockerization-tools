@@ -128,8 +128,10 @@ func (a *App) runHeadless(envVars string, cmdParts []string) error {
 	outputChan := make(chan string, 100)
 
 	// Start docker compose in a goroutine
+	// In headless mode, we need the executor to handle signals (Ctrl+C)
+	// because there's no TUI to intercept them
 	go func() {
-		err := a.executor.Execute(envVars, cmdParts, outputChan)
+		err := a.executor.ExecuteWithSignalHandler(envVars, cmdParts, outputChan, true)
 		if err != nil {
 			log.Printf("Docker execution error: %v", err)
 		}
