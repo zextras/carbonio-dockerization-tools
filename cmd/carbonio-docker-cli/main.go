@@ -28,6 +28,7 @@ func main() {
 	var configFile string
 	var saveLogs bool
 	var headless bool
+	var cleanDatabase bool
 	for i, arg := range os.Args[1:] {
 		switch arg {
 		case "--config-file":
@@ -38,6 +39,8 @@ func main() {
 			saveLogs = true
 		case "--headless":
 			headless = true
+		case "--with-clean-database":
+			cleanDatabase = true
 		}
 	}
 	if saveLogs {
@@ -109,7 +112,7 @@ func main() {
 	// Signal handling is done by the executor in headless mode
 
 	log.Println("Starting TUI application...")
-	app := tui.NewApp(workDir, configFile, headless)
+	app := tui.NewApp(workDir, configFile, headless, cleanDatabase)
 	if err := app.Run(); err != nil {
 		log.Fatalf("Application error: %v", err)
 	}

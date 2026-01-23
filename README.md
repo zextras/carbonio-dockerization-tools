@@ -22,35 +22,60 @@ A non-dev can then start the CLI and simply import the previously generated conf
 
 ## Arguments
 
-This tool can also work programmatically by using the argument:
+| Argument                            | Description                                                              |
+|-------------------------------------|--------------------------------------------------------------------------|
+| `--config-file path/to/config.yaml` | Load a configuration file and skip the interactive setup                 |
+| `--headless`                        | Run without TUI (requires `--config-file`). Useful for CI/CD or scripts  |
+| `--with-clean-database`             | Remove all database volumes before starting (fresh installation)         |
+| `--save-logs`                       | Save debug logs to `carbonio-docker-cli.log` in the current directory    |
 
-```--config-file path/to/config.yaml```
+### Examples
 
-And as a debug feature a command to save the logs locally can also be passed:
+**Interactive mode (TUI):**
+```bash
+./carbonio-docker-cli
+```
 
-```--save-logs```
+**Load a config file with TUI monitoring:**
+```bash
+./carbonio-docker-cli --config-file my-config.yaml
+```
+
+**Headless mode (no TUI, for scripts/CI):**
+```bash
+./carbonio-docker-cli --config-file my-config.yaml --headless
+```
+
+**Fresh installation (clean database):**
+```bash
+./carbonio-docker-cli --config-file my-config.yaml --with-clean-database
+```
+
+**Debug mode:**
+```bash
+./carbonio-docker-cli --save-logs
+```
 
 ---
 
-### Assumptions
-All the assumptions on the current base dockerization structure are defined in the ```docker_config.go``` file.
+## Features
 
-1) Some services are considered basic and cannot be disabled (mailbox&deps)
-2) Some services are built locally, so the tag cannot be changed
-3) Registry is fixed so no personal images can be passed (as for now)
-4) Consul registrators are mapped with their service and considered basic for the service, so they cannot be disabled and are not shown in the list
-5) Cleanup is always performed on exit/on start
+- **Custom images**: You can specify any Docker image (not just from Zextras registry), including locally built images
+- **Disable frontend modules**: Individual UI modules can be disabled during setup
+- **Export/Import configurations**: Save your setup to a file and share it with others
+- **Clean database option**: Start with a fresh database by removing all persistent data
+- **Graceful shutdown**: Press `q` or `Ctrl+C` to stop all containers and cleanup
 
-### Project structure
-The CLI includes the entirety of carbonio-dockerization inside the embedded directory using
-a git subtree and thus the dockerization can be updated with:
+---
 
-```git subtree pull --prefix=internal/embedded/carbonio-dockerization carbonio-dockerization devel --squash```
+## Working Directory
 
-This is really useful for compiling a self-extracting file that can then work on a static dockerization without it being subject to updates that may break it.
+The CLI extracts the embedded dockerization files to a **system cache directory**:
 
-### Releases
-Releases are handled by a Github workflow, so every time something is merged on the devel branch a release will be triggered
-(using semantic release for version calculation and tag).
+| OS      | Path                                            |
+|---------|-------------------------------------------------|
+| Linux   | `~/.cache/carbonio-docker-cli/workdir`          |
+| macOS   | `~/Library/Caches/carbonio-docker-cli/workdir`  |
+| Windows | `%LocalAppData%\carbonio-docker-cli\workdir`    |
 
-Compiled files are then published on github linked to the tag itself and thus can be downloaded from there.
+This directory is automatically recreated on each run to ensure a clean state.

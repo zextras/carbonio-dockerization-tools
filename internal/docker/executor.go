@@ -9,13 +9,16 @@ import (
 	"os/signal"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
 
 type Executor struct {
-	workDir string
-	cmd     *exec.Cmd
+	workDir     string
+	cmd         *exec.Cmd
+	cleanupOnce sync.Once
+	cleanupErr  error
 }
 
 func NewExecutor(workDir string) *Executor {
@@ -58,8 +61,9 @@ func (e *Executor) createDockerCommand(args ...string) *exec.Cmd {
 
 func (e *Executor) cleanupAllWithOutput(showOutput bool) error {
 	log.Println("Running complete cleanup (CE + Advanced)...")
+	fmt.Printf("Working directory: %s\n", e.workDir)
 
-	log.Println("Stopping containers gracefully...")
+	fmt.Println("Stopping containers gracefully...")
 	stopCmd := e.createDockerCommand(
 		"compose",
 		"--project-name", "carbonio",
@@ -68,14 +72,12 @@ func (e *Executor) cleanupAllWithOutput(showOutput bool) error {
 		"stop",
 		"--timeout", "60",
 	)
-	if showOutput {
-		stopCmd.Stdout = os.Stdout
-		stopCmd.Stderr = os.Stderr
-	}
+	stopCmd.Stdout = os.Stdout
+	stopCmd.Stderr = os.Stderr
 	if err := stopCmd.Run(); err != nil {
-		log.Printf("Warning: compose stop failed: %v (continuing anyway)", err)
+		fmt.Printf("Warning: compose stop failed: %v (continuing anyway)\n", err)
 	} else {
-		log.Println("Compose stop completed")
+		fmt.Println("Compose stop completed")
 	}
 
 	time.Sleep(2 * time.Second)
@@ -84,7 +86,7 @@ func (e *Executor) cleanupAllWithOutput(showOutput bool) error {
 	var lastErr error
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		log.Printf("Cleanup attempt %d/%d...", attempt, maxRetries)
+		fmt.Printf("Cleanup attempt %d/%d...\n", attempt, maxRetries)
 
 		cmd := e.createDockerCommand(
 			"compose",
@@ -95,10 +97,8 @@ func (e *Executor) cleanupAllWithOutput(showOutput bool) error {
 			"--remove-orphans",
 			"--timeout", "30",
 		)
-		if showOutput {
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-		}
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
 
 		err := cmd.Run()
 		if err == nil {
@@ -164,6 +164,66 @@ func (e *Executor) cleanupAllWithOutput(showOutput bool) error {
 	}
 
 	log.Println("Cleanup completed")
+	return nil
+}
+
+// CleanDatabaseVolumes removes PostgreSQL and storages volumes for a fresh installation
+func (e *Executor) CleanDatabaseVolumes() error {
+	fmt.Println("🗑️  Removing database and storage volumes for fresh installation...")
+
+	// First, stop containers that use these volumes
+	containersToStop := []string{
+		"carbonio-carbonio-postgres-1",
+		"carbonio-carbonio-storages-1",
+		"carbonio-carbonio-files-1",
+		"carbonio-carbonio-preview-1",
+		"carbonio-carbonio-docs-editor-1",
+		"carbonio-carbonio-docs-connector-1",
+		"carbonio-carbonio-tasks-1",
+	}
+
+	fmt.Println("   Stopping containers that use database volumes...")
+	for _, container := range containersToStop {
+		stopCmd := e.createDockerCommand("stop", "-t", "5", container)
+		stopCmd.Run() // Ignore errors - container may not exist
+		rmCmd := e.createDockerCommand("rm", "-f", container)
+		rmCmd.Run() // Ignore errors
+	}
+
+	// Give Docker a moment to release the volumes
+	time.Sleep(2 * time.Second)
+
+	// PostgreSQL and storages volume names (both naming conventions)
+	volumeNames := []string{
+		// PostgreSQL volumes (metadata)
+		"carbonio-postgres-data",
+		"carbonio-postgres-data-advanced",
+		"carbonio_postgres-data",
+		"carbonio_postgres-data-advanced",
+		// Storages volumes (actual files)
+		"carbonio-storages-data",
+		"carbonio-storages-data-advanced",
+		"carbonio_storages-data",
+		"carbonio_storages-data-advanced",
+	}
+
+	removedCount := 0
+	for _, volName := range volumeNames {
+		rmCmd := e.createDockerCommand("volume", "rm", "-f", volName)
+		if err := rmCmd.Run(); err != nil {
+			log.Printf("Volume %s removal: %v (may not exist)", volName, err)
+		} else {
+			fmt.Printf("   Removed volume: %s\n", volName)
+			removedCount++
+		}
+	}
+
+	if removedCount > 0 {
+		fmt.Printf("✓ Removed %d volume(s)\n", removedCount)
+	} else {
+		fmt.Println("✓ No volumes to remove")
+	}
+
 	return nil
 }
 
@@ -250,17 +310,24 @@ func (e *Executor) Stop() error {
 }
 
 func (e *Executor) StopAndCleanup() error {
-	log.Println("=== StopAndCleanup called ===")
+	e.cleanupOnce.Do(func() {
+		fmt.Println("\n=== StopAndCleanup called ===")
 
-	// Kill the docker compose process forcefully to avoid conflict with cleanup
-	if e.cmd != nil && e.cmd.Process != nil {
-		log.Println("Killing docker compose process...")
-		e.cmd.Process.Kill()
-	}
+		// Kill the docker compose process forcefully to avoid conflict with cleanup
+		if e.cmd != nil && e.cmd.Process != nil {
+			fmt.Println("Killing docker compose process...")
+			e.cmd.Process.Kill()
+		}
 
-	time.Sleep(3 * time.Second)
+		fmt.Println("Waiting 3 seconds for process to die...")
+		time.Sleep(3 * time.Second)
 
-	return e.CleanupAllQuiet()
+		fmt.Println("Starting cleanup...")
+		// Use CleanupAll (with output) so user can see what's happening
+		e.cleanupErr = e.CleanupAll()
+		fmt.Println("Cleanup finished")
+	})
+	return e.cleanupErr
 }
 
 func parseEnvVars(envString string) []string {

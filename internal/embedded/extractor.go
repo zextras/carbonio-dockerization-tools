@@ -10,24 +10,45 @@ import (
 	"strings"
 )
 
-const WorkDir = "carbonio-docker-workdir"
+const (
+	AppName = "carbonio-docker-cli"
+	WorkDir = "workdir"
+)
 
 type Extractor struct {
-	binaryPath string
-	workDir    string
+	baseDir string
+	workDir string
 }
 
 func NewExtractor() (*Extractor, error) {
-	exePath, err := os.Executable()
+	baseDir, err := getAppCacheDir()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get executable path: %w", err)
+		return nil, fmt.Errorf("failed to determine cache directory: %w", err)
 	}
-	binaryDir := filepath.Dir(exePath)
-	workDir := filepath.Join(binaryDir, WorkDir)
+	workDir := filepath.Join(baseDir, WorkDir)
 	return &Extractor{
-		binaryPath: binaryDir,
-		workDir:    workDir,
+		baseDir: baseDir,
+		workDir: workDir,
 	}, nil
+}
+
+// getAppCacheDir returns the application's cache directory.
+// Uses os.UserCacheDir() which returns:
+//   - Linux: ~/.cache/carbonio-docker-cli
+//   - macOS: ~/Library/Caches/carbonio-docker-cli
+//   - Windows: %LocalAppData%\carbonio-docker-cli
+func getAppCacheDir() (string, error) {
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		// Fallback to home directory if cache dir is not available
+		homeDir, homeErr := os.UserHomeDir()
+		if homeErr != nil {
+			return "", fmt.Errorf("failed to get cache dir (%v) and home dir (%v)", err, homeErr)
+		}
+		log.Printf("Warning: using home directory as fallback (cache dir unavailable: %v)", err)
+		return filepath.Join(homeDir, "."+AppName), nil
+	}
+	return filepath.Join(cacheDir, AppName), nil
 }
 func (e *Extractor) GetWorkDir() string {
 	return e.workDir

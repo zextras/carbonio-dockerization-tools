@@ -277,16 +277,14 @@ func (m *MonitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			log.Println("=== User pressed ctrl+c or q, stopping and cleaning up... ===")
 			m.cleaning = true
-			m.outputLines = append(m.outputLines, "")
-			m.outputLines = append(m.outputLines, "🧹 Stopping and cleaning up containers...")
-			return m, func() tea.Msg {
-				if err := m.executor.StopAndCleanup(); err != nil {
-					log.Printf("Failed to stop and cleanup: %v", err)
-					return MonitorCompletedMsg{Error: err}
-				}
-				log.Println("Stop and cleanup successful")
-				return tea.Quit
+			// Execute cleanup SYNCHRONOUSLY before returning tea.Quit
+			// This ensures cleanup completes before the program exits
+			fmt.Println("\n🧹 Stopping and cleaning up containers...")
+			if err := m.executor.StopAndCleanup(); err != nil {
+				log.Printf("Failed to stop and cleanup: %v", err)
 			}
+			log.Println("Stop and cleanup successful")
+			return m, tea.Quit
 		case "l":
 			m.simpleView = !m.simpleView
 			log.Printf("Toggled view: simpleView=%v", m.simpleView)

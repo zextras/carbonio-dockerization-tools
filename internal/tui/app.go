@@ -8,6 +8,10 @@ import (
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
 	"log"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
 )
 
 type Screen int
@@ -18,35 +22,44 @@ const (
 	ScreenServices
 	ScreenConfigSave
 	ScreenFilePicker
+	ScreenCleanDatabase
 	ScreenMonitor
 )
 
 type App struct {
-	workDir         string
-	configFile      string
-	headless        bool
-	currentScreen   Screen
-	startupModel    *StartupModel
-	editionModel    *EditionModel
-	servicesModel   *ServicesModel
-	configSaveModel *ConfigSaveModel
-	filePickerModel *FilePickerModel
-	monitorModel    *MonitorModel
-	parsedConfig    *parser.ParsedConfig
-	userConfig      *config.UserConfig
-	edition         parser.Edition
-	executor        *docker.Executor
-	pendingBackend  map[string]*config.ImageConfig
-	pendingFrontend map[string]*config.ImageConfig
+	workDir            string
+	configFile         string
+	headless           bool
+	cleanDatabase      bool
+	cleanDatabaseSet   bool // true if --with-clean-database was explicitly passed
+	currentScreen      Screen
+	startupModel       *StartupModel
+	editionModel       *EditionModel
+	servicesModel      *ServicesModel
+	configSaveModel    *ConfigSaveModel
+	filePickerModel    *FilePickerModel
+	cleanDatabaseModel *CleanDatabaseModel
+	monitorModel       *MonitorModel
+	parsedConfig       *parser.ParsedConfig
+	userConfig         *config.UserConfig
+	edition            parser.Edition
+	executor           *docker.Executor
+	pendingBackend     map[string]*config.ImageConfig
+	pendingFrontend    map[string]*config.ImageConfig
+	cleanupOnce        sync.Once
+	cleanupDone        chan struct{}
 }
 
-func NewApp(workDir, configFile string, headless bool) *App {
+func NewApp(workDir, configFile string, headless bool, cleanDatabase bool) *App {
 	return &App{
-		workDir:       workDir,
-		configFile:    configFile,
-		headless:      headless,
-		currentScreen: ScreenStartup,
-		executor:      docker.NewExecutor(workDir),
+		workDir:          workDir,
+		configFile:       configFile,
+		headless:         headless,
+		cleanDatabase:    cleanDatabase,
+		cleanDatabaseSet: cleanDatabase, // if true, it was explicitly set via flag
+		currentScreen:    ScreenStartup,
+		executor:         docker.NewExecutor(workDir),
+		cleanupDone:      make(chan struct{}),
 	}
 }
 func (a *App) Run() error {
@@ -55,6 +68,21 @@ func (a *App) Run() error {
 		log.Printf("Warning: cleanup failed: %v", err)
 	}
 	fmt.Println("✓ Cleanup complete\n")
+
+	// Setup OS-level signal handler as fallback for entire app lifetime
+	// This ensures cleanup happens even if the TUI fails to intercept Ctrl+C
+	if !a.headless {
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+		go func() {
+			<-sigChan
+			log.Println("Signal received by OS handler (fallback), performing cleanup...")
+			a.doCleanup()
+			os.Exit(0)
+		}()
+		defer signal.Stop(sigChan)
+	}
+
 	if a.configFile != "" {
 		return a.runWithConfig(a.configFile)
 	}
@@ -64,6 +92,17 @@ func (a *App) Run() error {
 		return fmt.Errorf("TUI error: %w", err)
 	}
 	return nil
+}
+
+// doCleanup performs cleanup exactly once, safe to call multiple times
+func (a *App) doCleanup() {
+	a.cleanupOnce.Do(func() {
+		log.Println("Performing cleanup...")
+		if err := a.executor.StopAndCleanup(); err != nil {
+			log.Printf("Cleanup failed: %v", err)
+		}
+		close(a.cleanupDone)
+	})
 }
 func (a *App) runWithConfig(filePath string) error {
 	log.Printf("=== Running with config file: %s ===", filePath)
@@ -113,6 +152,7 @@ func (a *App) runWithConfig(filePath string) error {
 	visibleServices := a.buildVisibleServicesList(a.pendingBackend)
 	a.currentScreen = ScreenMonitor
 	a.monitorModel = NewMonitorModel(a.executor, envVars, cmdParts, visibleServices, a.workDir)
+
 	p := tea.NewProgram(a, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("TUI error: %w", err)
@@ -121,6 +161,15 @@ func (a *App) runWithConfig(filePath string) error {
 }
 
 func (a *App) runHeadless(envVars string, cmdParts []string) error {
+	// Clean database volumes if requested via flag
+	if a.cleanDatabase {
+		log.Println("Cleaning database volumes as requested...")
+		if err := a.executor.CleanDatabaseVolumes(); err != nil {
+			log.Printf("Warning: database cleanup failed: %v", err)
+		}
+		fmt.Println()
+	}
+
 	fmt.Println("🚀 Starting Carbonio services in headless mode...")
 	fmt.Println("   Press Ctrl+C to stop and cleanup")
 	fmt.Println()
@@ -204,6 +253,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				log.Printf("Failed to save config: %v", err)
 			}
 		}
+		// Show clean database prompt if not already set via flag
+		if !a.cleanDatabaseSet {
+			a.currentScreen = ScreenCleanDatabase
+			a.cleanDatabaseModel = NewCleanDatabaseModel()
+			return a, nil
+		}
 		return a.handleExecute()
 	case FilePickerChoiceMsg:
 		if msg.Cancelled {
@@ -212,6 +267,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 		return a.handleFilePickerChoice(msg.FilePath)
+	case CleanDatabaseChoiceMsg:
+		a.cleanDatabase = msg.CleanDatabase
+		return a.handleExecute()
 	case MonitorCompletedMsg:
 		log.Println("Docker compose finished in app")
 		return a, tea.Quit
@@ -247,6 +305,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.filePickerModel = newModel.(*FilePickerModel)
 			return a, cmd
 		}
+	case ScreenCleanDatabase:
+		if a.cleanDatabaseModel != nil {
+			newModel, cmd := a.cleanDatabaseModel.Update(msg)
+			a.cleanDatabaseModel = newModel.(*CleanDatabaseModel)
+			return a, cmd
+		}
 	case ScreenMonitor:
 		if a.monitorModel != nil {
 			newModel, cmd := a.monitorModel.Update(msg)
@@ -278,6 +342,10 @@ func (a *App) View() string {
 		if a.filePickerModel != nil {
 			return a.filePickerModel.View()
 		}
+	case ScreenCleanDatabase:
+		if a.cleanDatabaseModel != nil {
+			return a.cleanDatabaseModel.View()
+		}
 	case ScreenMonitor:
 		if a.monitorModel != nil {
 			return a.monitorModel.View()
@@ -305,6 +373,15 @@ func (a *App) handleEditionChoice() (tea.Model, tea.Cmd) {
 }
 func (a *App) handleExecute() (tea.Model, tea.Cmd) {
 	log.Println("=== Executing services ===")
+
+	// Clean database volumes if requested
+	if a.cleanDatabase {
+		log.Println("Cleaning database volumes as requested...")
+		if err := a.executor.CleanDatabaseVolumes(); err != nil {
+			log.Printf("Warning: database cleanup failed: %v", err)
+		}
+	}
+
 	log.Printf("Backend services: %d", len(a.pendingBackend))
 	log.Printf("Frontend images: %d", len(a.pendingFrontend))
 	builder := docker.NewCommandBuilder(a.workDir, a.edition, a.parsedConfig)
@@ -363,6 +440,12 @@ func (a *App) handleFilePickerChoice(filePath string) (tea.Model, tea.Cmd) {
 	a.edition = edition
 	a.pendingBackend = userConfig.Carbonio.Backend
 	a.pendingFrontend = userConfig.Carbonio.Frontend
+	// Show clean database prompt if not already set via flag
+	if !a.cleanDatabaseSet {
+		a.currentScreen = ScreenCleanDatabase
+		a.cleanDatabaseModel = NewCleanDatabaseModel()
+		return a, nil
+	}
 	return a.handleExecute()
 }
 func (a *App) saveConfig(filename string) error {
