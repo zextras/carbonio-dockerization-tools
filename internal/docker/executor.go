@@ -271,6 +271,11 @@ func (e *Executor) ExecuteWithSignalHandler(envVars string, cmdParts []string, o
 	}
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Recovered from stdout goroutine panic: %v", r)
+			}
+		}()
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -280,6 +285,11 @@ func (e *Executor) ExecuteWithSignalHandler(envVars string, cmdParts []string, o
 	}()
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Recovered from stderr goroutine panic: %v", r)
+			}
+		}()
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
 			line := scanner.Text()
