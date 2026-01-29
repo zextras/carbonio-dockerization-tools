@@ -98,10 +98,10 @@ COPY --from=webui-i18n /opt/zextras/web/iris/carbonio-auth-ui/i18n /opt/zextras/
 COPY --from=webui-i18n /opt/zextras/web/iris/carbonio-calendars-ui/i18n /opt/zextras/web/iris/carbonio-calendars-ui/i18n
 COPY --from=webui-i18n /opt/zextras/web/iris/carbonio-contacts-ui/i18n /opt/zextras/web/iris/carbonio-contacts-ui/i18n
 COPY --from=webui-i18n /opt/zextras/web/iris/carbonio-files-ui/i18n /opt/zextras/web/iris/carbonio-files-ui/i18n
-COPY --from=webui-i18n /opt/zextras/web/iris/carbonio-tasks-ui/i18n /opt/zextras/web/iris/carbonio-tasks-ui/i18n
 COPY --from=webui-i18n /opt/zextras/web/iris/carbonio-mails-ui/i18n /opt/zextras/web/iris/carbonio-mails-ui/i18n
 COPY --from=webui-i18n /opt/zextras/web/iris/carbonio-search-ui/i18n /opt/zextras/web/iris/carbonio-search-ui/i18n 
 COPY --from=webui-i18n /opt/zextras/web/iris/carbonio-shell-ui/i18n /opt/zextras/web/iris/carbonio-shell-ui/i18n
+COPY --from=webui-i18n /opt/zextras/web/iris/carbonio-storages-ui/i18n /opt/zextras/web/iris/carbonio-storages-ui/i18n
 COPY --from=webui-i18n /opt/zextras/web/iris/carbonio-tasks-ui/i18n /opt/zextras/web/iris/carbonio-tasks-ui/i18n
 COPY --from=webui-i18n /opt/zextras/web/iris/carbonio-ws-collaboration-ui/i18n /opt/zextras/web/iris/carbonio-ws-collaboration-ui/i18n
 # TODO

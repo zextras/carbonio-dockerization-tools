@@ -1,5 +1,6 @@
 #!/bin/bash
 
+set -e
 export COMPOSE_FILE="docker-compose.yaml"
 ALL_SERVICES=(event-listener carbonio-composed-ui carbonio-provisioner consul-register carbonio-preview carbonio-storages)
 
@@ -30,4 +31,8 @@ echo "Starting with compose file: $COMPOSE_FILE"
 echo "Services: ${ALL_SERVICES[*]}"
 echo "=========================================="
 echo "=========================================="
-exec docker compose up -d --build --pull always "${ALL_SERVICES[@]}"
+
+# Pulls latest images in the built container
+docker compose build --pull
+# Pulls latest images in the compose files
+exec docker compose up -d --pull always "${ALL_SERVICES[@]}"

@@ -84,6 +84,10 @@ services:
 
   carbonio-message-dispatcher:
     image: ${CARBONIO_MESSAGE_DISPATCHER_IMAGE:-registry.dev.zextras.com/dev/carbonio-message-dispatcher:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
 
   consul:
     volumes:
