@@ -62,6 +62,18 @@ func NewApp(workDir, configFile string, headless bool, cleanDatabase bool) *App 
 		cleanupDone:      make(chan struct{}),
 	}
 }
+
+func (a *App) getProjectName() string {
+	if a.edition == parser.EditionAdvanced {
+		return "carbonio-advanced"
+	}
+	return "carbonio"
+}
+
+func (a *App) setEdition(edition parser.Edition) {
+	a.edition = edition
+	a.executor.SetEdition(string(edition))
+}
 func (a *App) Run() error {
 	fmt.Println("🧹 Cleaning up existing containers and pruning system...")
 	if err := a.executor.CleanupAll(); err != nil {
@@ -124,7 +136,7 @@ func (a *App) runWithConfig(filePath string) error {
 	}
 	a.parsedConfig = parsedConfig
 	a.userConfig = userConfig
-	a.edition = edition
+	a.setEdition(edition)
 	a.pendingBackend = userConfig.Carbonio.Backend
 	a.pendingFrontend = userConfig.Carbonio.Frontend
 	log.Println("Building docker command from config...")
@@ -151,7 +163,7 @@ func (a *App) runWithConfig(filePath string) error {
 	// Interactive mode: use TUI
 	visibleServices := a.buildVisibleServicesList(a.pendingBackend)
 	a.currentScreen = ScreenMonitor
-	a.monitorModel = NewMonitorModel(a.executor, envVars, cmdParts, visibleServices, a.workDir)
+	a.monitorModel = NewMonitorModel(a.executor, envVars, cmdParts, visibleServices, a.workDir, a.getProjectName())
 
 	p := tea.NewProgram(a, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
@@ -239,7 +251,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 	case EditionChoiceMsg:
-		a.edition = msg.Edition
+		a.setEdition(msg.Edition)
 		return a.handleEditionChoice()
 	case ServicesConfirmedMsg:
 		a.pendingBackend = msg.Backend
@@ -407,7 +419,7 @@ func (a *App) handleExecute() (tea.Model, tea.Cmd) {
 	visibleServices := a.buildVisibleServicesList(a.pendingBackend)
 	log.Printf("Visible services for monitoring: %v", visibleServices)
 	a.currentScreen = ScreenMonitor
-	a.monitorModel = NewMonitorModel(a.executor, envVars, cmdParts, visibleServices, a.workDir)
+	a.monitorModel = NewMonitorModel(a.executor, envVars, cmdParts, visibleServices, a.workDir, a.getProjectName())
 	log.Println("Starting monitor screen")
 	return a, a.monitorModel.Start()
 }
@@ -437,7 +449,7 @@ func (a *App) handleFilePickerChoice(filePath string) (tea.Model, tea.Cmd) {
 	}
 	a.parsedConfig = parsedConfig
 	a.userConfig = userConfig
-	a.edition = edition
+	a.setEdition(edition)
 	a.pendingBackend = userConfig.Carbonio.Backend
 	a.pendingFrontend = userConfig.Carbonio.Frontend
 	// Show clean database prompt if not already set via flag

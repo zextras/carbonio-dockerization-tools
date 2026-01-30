@@ -83,6 +83,7 @@ type MonitorModel struct {
 	envVars          string
 	cmdParts         []string
 	workDir          string
+	projectName      string
 	outputChan       chan string
 	outputLines      []string
 	maxLines         int
@@ -105,7 +106,7 @@ type DockerComposeStatus struct {
 	Service string `json:"Service"`
 }
 
-func NewMonitorModel(executor *docker.Executor, envVars string, cmdParts []string, selectedServices []string, workDir string) *MonitorModel {
+func NewMonitorModel(executor *docker.Executor, envVars string, cmdParts []string, selectedServices []string, workDir string, projectName string) *MonitorModel {
 	states := make(map[string]ServiceState)
 	for _, svc := range selectedServices {
 		states[svc] = ServiceStateUnknown
@@ -122,6 +123,7 @@ func NewMonitorModel(executor *docker.Executor, envVars string, cmdParts []strin
 		envVars:          envVars,
 		cmdParts:         cmdParts,
 		workDir:          workDir,
+		projectName:      projectName,
 		outputChan:       make(chan string, 100),
 		outputLines:      []string{},
 		maxLines:         30,
@@ -178,7 +180,8 @@ func (m *MonitorModel) pollDockerState() tea.Cmd {
 func (m *MonitorModel) fetchDockerStates() map[string]ServiceState {
 	states := make(map[string]ServiceState)
 
-	cmd := exec.Command("docker", "compose", "--project-name", "carbonio", "ps", "--format", "json")
+	cmd := exec.Command("docker", "compose", "--project-name", m.projectName, "ps", "--format", "json")
+	cmd.Dir = m.workDir
 	output, err := cmd.Output()
 	if err != nil {
 		log.Printf("Failed to fetch docker states: %v", err)

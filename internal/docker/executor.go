@@ -16,6 +16,7 @@ import (
 
 type Executor struct {
 	workDir     string
+	edition     string
 	cmd         *exec.Cmd
 	cleanupOnce sync.Once
 	cleanupErr  error
@@ -24,7 +25,19 @@ type Executor struct {
 func NewExecutor(workDir string) *Executor {
 	return &Executor{
 		workDir: workDir,
+		edition: "ce", // default to CE
 	}
+}
+
+func (e *Executor) SetEdition(edition string) {
+	e.edition = edition
+}
+
+func (e *Executor) getProjectName() string {
+	if e.edition == "advanced" {
+		return "carbonio-advanced"
+	}
+	return "carbonio"
 }
 
 func (e *Executor) CleanupExisting(edition string) error {
@@ -63,75 +76,49 @@ func (e *Executor) cleanupAllWithOutput(showOutput bool) error {
 	log.Println("Running complete cleanup (CE + Advanced)...")
 	fmt.Printf("Working directory: %s\n", e.workDir)
 
-	fmt.Println("Stopping containers gracefully...")
-	stopCmd := e.createDockerCommand(
-		"compose",
-		"--project-name", "carbonio",
-		"-f", "docker-compose.yaml",
-		"-f", "docker-compose-advanced.yaml",
-		"stop",
-		"--timeout", "60",
-	)
-	stopCmd.Stdout = os.Stdout
-	stopCmd.Stderr = os.Stderr
-	if err := stopCmd.Run(); err != nil {
-		fmt.Printf("Warning: compose stop failed: %v (continuing anyway)\n", err)
-	} else {
-		fmt.Println("Compose stop completed")
-	}
+	// Clean both project names to ensure all containers are removed
+	// regardless of which edition was used in the previous run
+	projectNames := []string{"carbonio", "carbonio-advanced"}
 
-	time.Sleep(2 * time.Second)
-
-	maxRetries := 3
-	var lastErr error
-
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		fmt.Printf("Cleanup attempt %d/%d...\n", attempt, maxRetries)
+	for _, projectName := range projectNames {
+		fmt.Printf("Stopping containers for project %s...\n", projectName)
+		stopCmd := e.createDockerCommand(
+			"compose",
+			"--project-name", projectName,
+			"-f", "docker-compose.yaml",
+			"-f", "docker-compose-advanced.yaml",
+			"stop",
+			"--timeout", "30",
+		)
+		if showOutput {
+			stopCmd.Stdout = os.Stdout
+			stopCmd.Stderr = os.Stderr
+		}
+		stopCmd.Run() // Ignore errors - project may not exist
 
 		cmd := e.createDockerCommand(
 			"compose",
-			"--project-name", "carbonio",
+			"--project-name", projectName,
 			"-f", "docker-compose.yaml",
 			"-f", "docker-compose-advanced.yaml",
 			"down",
 			"--remove-orphans",
 			"--timeout", "30",
 		)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-
-		err := cmd.Run()
-		if err == nil {
-			log.Println("Compose down completed successfully")
-			lastErr = nil
-			break
+		if showOutput {
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
 		}
-
-		errStr := err.Error()
-		if strings.Contains(errStr, "is restarting") || strings.Contains(errStr, "wait until the container is running") {
-			log.Printf("Container is restarting, waiting before retry %d/%d...", attempt, maxRetries)
-			if attempt < maxRetries {
-				time.Sleep(time.Duration(attempt*3) * time.Second)
-				continue
-			}
-		}
-
-		lastErr = err
-		log.Printf("Compose down attempt %d failed: %v", attempt, err)
-
-		if attempt < maxRetries {
-			time.Sleep(time.Duration(attempt*2) * time.Second)
-		}
+		cmd.Run() // Ignore errors - project may not exist
 	}
 
-	if lastErr != nil {
-		log.Printf("Warning: compose down failed after %d attempts: %v (continuing to prune)", maxRetries, lastErr)
-	}
+	time.Sleep(2 * time.Second)
 
 	log.Println("Removing consul data volume to prevent rejoin errors...")
+	// Consul volumes use default naming: {project-name}_{volume-name}
 	consulVolumeNames := []string{
 		"carbonio_consul-data",
-		"consul-data",
+		"carbonio-advanced_consul-data-advanced",
 	}
 	for _, volName := range consulVolumeNames {
 		rmCmd := e.createDockerCommand("volume", "rm", "-f", volName)
@@ -171,19 +158,22 @@ func (e *Executor) cleanupAllWithOutput(showOutput bool) error {
 func (e *Executor) CleanDatabaseVolumes() error {
 	fmt.Println("🗑️  Removing database and storage volumes for fresh installation...")
 
+	projectName := e.getProjectName()
+
 	// First, stop containers that use these volumes
-	containersToStop := []string{
-		"carbonio-carbonio-postgres-1",
-		"carbonio-carbonio-storages-1",
-		"carbonio-carbonio-files-1",
-		"carbonio-carbonio-preview-1",
-		"carbonio-carbonio-docs-editor-1",
-		"carbonio-carbonio-docs-connector-1",
-		"carbonio-carbonio-tasks-1",
+	servicesToStop := []string{
+		"carbonio-postgres",
+		"carbonio-storages",
+		"carbonio-files",
+		"carbonio-preview",
+		"carbonio-docs-editor",
+		"carbonio-docs-connector",
+		"carbonio-tasks",
 	}
 
 	fmt.Println("   Stopping containers that use database volumes...")
-	for _, container := range containersToStop {
+	for _, service := range servicesToStop {
+		container := fmt.Sprintf("%s-%s-1", projectName, service)
 		stopCmd := e.createDockerCommand("stop", "-t", "5", container)
 		stopCmd.Run() // Ignore errors - container may not exist
 		rmCmd := e.createDockerCommand("rm", "-f", container)
@@ -193,18 +183,17 @@ func (e *Executor) CleanDatabaseVolumes() error {
 	// Give Docker a moment to release the volumes
 	time.Sleep(2 * time.Second)
 
-	// PostgreSQL and storages volume names (both naming conventions)
+	// Volume names are explicitly defined in docker-compose files:
+	// - CE: carbonio-postgres-data, carbonio-storages-data
+	// - Advanced: carbonio-postgres-data-advanced, carbonio-storages-data-advanced
+	// Clean both CE and Advanced volumes to ensure fresh start
 	volumeNames := []string{
-		// PostgreSQL volumes (metadata)
+		// CE volumes
 		"carbonio-postgres-data",
-		"carbonio-postgres-data-advanced",
-		"carbonio_postgres-data",
-		"carbonio_postgres-data-advanced",
-		// Storages volumes (actual files)
 		"carbonio-storages-data",
+		// Advanced volumes
+		"carbonio-postgres-data-advanced",
 		"carbonio-storages-data-advanced",
-		"carbonio_storages-data",
-		"carbonio_storages-data-advanced",
 	}
 
 	removedCount := 0
