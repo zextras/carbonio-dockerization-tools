@@ -5,10 +5,12 @@ import (
 	"carbonio-docker-cli/internal/graph"
 	"carbonio-docker-cli/internal/parser"
 	"fmt"
+	"image/color"
 	"sort"
 	"strings"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
@@ -89,14 +91,12 @@ func (a *App) ShowServicesScreen(resolver *graph.DependencyResolver) {
 		a.pendingBackend = backend
 		a.pendingFrontend = frontend
 
-		a.showSaveConfigDialog(func() {
-			envVars, cmdParts, err := a.buildDockerCommand()
-			if err != nil {
-				dialog.ShowError(err, a.window)
-				return
-			}
-			a.promptCleanDatabaseThenMonitor(envVars, cmdParts)
-		})
+		envVars, cmdParts, err := a.buildDockerCommand()
+		if err != nil {
+			dialog.ShowError(err, a.window)
+			return
+		}
+		a.promptCleanDatabaseThenMonitor(envVars, cmdParts)
 	})
 	startBtn.Importance = widget.HighImportance
 
@@ -409,16 +409,27 @@ func showCustomDialog(item *serviceItem, tagSelect *widget.Select, nameLabel *wi
 		},
 	})
 
-	content := container.NewVBox(
+	minWidth := canvas.NewRectangle(color.Transparent)
+	minWidth.SetMinSize(fyne.NewSize(550, 0))
+
+	buttonSpacer := canvas.NewRectangle(color.Transparent)
+	buttonSpacer.SetMinSize(fyne.NewSize(0, 4))
+
+	inner := container.NewVBox(
+		minWidth,
 		dialogTitle,
 		widget.NewSeparator(),
 		entryLabel,
 		imageEntry,
+		buttonSpacer,
 		widget.NewSeparator(),
 		container.NewGridWithColumns(2, cancelBtn, applyBtn),
 	)
 
-	d := dialog.NewCustomWithoutButtons("", content, win)
+	bg := canvas.NewRectangle(theme.OverlayBackgroundColor())
+	bg.CornerRadius = 8
+	card := container.NewStack(bg, container.NewPadded(inner))
+	pop := widget.NewModalPopUp(card, win.Canvas())
 
 	applyBtn.OnTapped = func() {
 		fullURL := strings.TrimSpace(imageEntry.Text)
@@ -481,15 +492,14 @@ func showCustomDialog(item *serviceItem, tagSelect *widget.Select, nameLabel *wi
 			tagSelect.Disable()
 		}
 
-		d.Hide()
+		pop.Hide()
 	}
 
 	cancelBtn.OnTapped = func() {
-		d.Hide()
+		pop.Hide()
 	}
 
-	d.Resize(fyne.NewSize(650, 250))
-	d.Show()
+	pop.Show()
 }
 
 func autoSelectDeps(item *serviceItem, allItems []*serviceItem, resolver *graph.DependencyResolver) {

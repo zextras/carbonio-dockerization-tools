@@ -3,12 +3,12 @@ package gui
 import (
 	"carbonio-docker-cli/internal/graph"
 	"carbonio-docker-cli/internal/parser"
-	"fmt"
+	"image/color"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
@@ -87,14 +87,51 @@ func (a *App) buildVisibleServicesList() []string {
 }
 
 func (a *App) promptCleanDatabaseThenMonitor(envVars string, cmdParts []string) {
-	dialog.ShowConfirm("Clean Database",
-		"Do you want to start with a clean database?\n\n"+
-			"This will remove the PostgreSQL volume, deleting all data\n"+
-			"(files, tasks, docs, etc.). Recommended for fresh testing.",
-		func(clean bool) {
-			a.cleanDatabase = clean
-			a.startMonitor(envVars, cmdParts)
-		}, a.window)
+	titleLabel := widget.NewRichText(&widget.TextSegment{
+		Text: "Clean Database",
+		Style: widget.RichTextStyle{
+			SizeName:  theme.SizeNameSubHeadingText,
+			TextStyle: fyne.TextStyle{Bold: true},
+		},
+	})
+	messageLabel := widget.NewLabel(
+		"Do you want to start with a clean database?\n\n" +
+			"This will remove the PostgreSQL volume, deleting all data\n" +
+			"(files, tasks, docs, etc.). Recommended for fresh testing.")
+
+	yesBtn := widget.NewButton("Yes, clean", nil)
+	noBtn := widget.NewButton("No, keep data", nil)
+	noBtn.Importance = widget.HighImportance
+
+	minWidth := canvas.NewRectangle(color.Transparent)
+	minWidth.SetMinSize(fyne.NewSize(500, 0))
+
+	inner := container.NewVBox(
+		minWidth,
+		titleLabel,
+		widget.NewSeparator(),
+		messageLabel,
+		widget.NewSeparator(),
+		container.NewGridWithColumns(2, yesBtn, noBtn),
+	)
+
+	bg := canvas.NewRectangle(theme.OverlayBackgroundColor())
+	bg.CornerRadius = 8
+	card := container.NewStack(bg, container.NewPadded(inner))
+	pop := widget.NewModalPopUp(card, a.window.Canvas())
+
+	yesBtn.OnTapped = func() {
+		pop.Hide()
+		a.cleanDatabase = true
+		a.startMonitor(envVars, cmdParts)
+	}
+	noBtn.OnTapped = func() {
+		pop.Hide()
+		a.cleanDatabase = false
+		a.startMonitor(envVars, cmdParts)
+	}
+
+	pop.Show()
 }
 
 func (a *App) handleConfigImport(filePath string) {
@@ -119,38 +156,4 @@ func (a *App) startMonitor(envVars string, cmdParts []string) {
 	}
 	visibleServices := a.buildVisibleServicesList()
 	a.ShowMonitorScreen(envVars, cmdParts, visibleServices)
-}
-
-func (a *App) showSaveConfigDialog(afterSave func()) {
-	dialog.ShowConfirm("Save Configuration",
-		"Do you want to save this configuration to a file?",
-		func(wantsSave bool) {
-			if !wantsSave {
-				afterSave()
-				return
-			}
-			fd := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
-				if err != nil {
-					dialog.ShowError(err, a.window)
-					afterSave()
-					return
-				}
-				if writer == nil {
-					afterSave()
-					return
-				}
-				writer.Close()
-				path := writer.URI().Path()
-				if saveErr := a.saveConfig(path); saveErr != nil {
-					dialog.ShowError(saveErr, a.window)
-					afterSave()
-					return
-				}
-				showSuccessDialog("Config Saved", fmt.Sprintf("Saved to:\n%s", path), a.window)
-				afterSave()
-			}, a.window)
-			fd.SetFilter(storage.NewExtensionFileFilter([]string{".yaml", ".yml"}))
-			fd.SetFileName("carbonio-config.yaml")
-			fd.Show()
-		}, a.window)
 }
