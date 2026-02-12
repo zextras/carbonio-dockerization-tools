@@ -1,0 +1,36 @@
+name: carbonio-dockerization
+arch: "${GOARCH}"
+platform: linux
+version: "${VERSION}"
+maintainer: "Zextras <info@zextras.com>"
+description: "Carbonio dockerization CLI and GUI tools"
+vendor: "Zextras"
+homepage: "https://github.com/nicola-galvagni/carbonio-docker-cli"
+license: "AGPL-3.0"
+
+contents:
+  # CLI binary
+  - src: artifacts/carbonio-dockerization-cli
+    dst: /usr/local/bin/carbonio-dockerization-cli
+    file_info:
+      mode: 0755
+
+  # GUI binary
+  - src: artifacts/carbonio-dockerization-gui
+    dst: /usr/local/bin/carbonio-dockerization-gui
+    file_info:
+      mode: 0755
+
+  # Desktop entry
+  - src: packaging/carbonio-dockerization-gui.desktop
+    dst: /usr/share/applications/carbonio-dockerization-gui.desktop
+
+  # Icon
+  - src: carbonio-docker-logo.png
+    dst: /usr/share/pixmaps/carbonio-dockerization-gui.png
+
+deb:
+  compression: xz
+
+rpm:
+  compression: xz

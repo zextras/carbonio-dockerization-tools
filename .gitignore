@@ -32,8 +32,10 @@ go.work.sum
 .vscode/
 
 /carbonio-docker-cli
-/carbonio-docker-cli.exe
-/carbonio-docker-cli-*
+/carbonio-docker-gui
+/carbonio-dockerization-cli
+/carbonio-dockerization-gui
+/artifacts/
 
 carbonio-docker-workdir/
 
@@ -41,6 +43,7 @@ carbonio-config.yaml
 carbonio-config-*.yaml
 
 carbonio-docker-cli.log
+carbonio-docker-gui.log
 *.log
 
 coverage.html
