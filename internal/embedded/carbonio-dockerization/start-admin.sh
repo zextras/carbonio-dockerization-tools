@@ -87,4 +87,4 @@ else
 	echo "Starting Carbonio Admin Panel CE"
 fi
 echo "=========================================="
-exec docker compose up -d --build --pull "$PULL_POLICY" "${ADMIN_SERVICES[@]}"
+exec docker compose up -d --pull "$PULL_POLICY" --build --force-recreate "${ADMIN_SERVICES[@]}"
