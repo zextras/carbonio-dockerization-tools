@@ -1,7 +1,7 @@
 It's possible to have a default router in traefik by doing:
 
 traefik:
-image: traefik:v3.0
+image: traefik:v3.6
 command:
 - "--providers.docker=true"
 - "--providers.docker.defaultRule=Host(`{{ normalize .Name }}.docker.localhost`)"

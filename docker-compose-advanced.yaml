@@ -1,7 +1,6 @@
 name: carbonio-advanced
 
 services:
-
   carbonio-mailbox:
     pre_stop:
       - command: /bin/sh -c ". /usr/bin/register-service.sh && unregister"
@@ -66,6 +65,16 @@ services:
     image: ${CARBONIO_TASKS_IMAGE:-registry.dev.zextras.com/dev/carbonio-tasks:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
 
   carbonio-storages:
+    image: ${CARBONIO_STORAGES_IMAGE:-registry.dev.zextras.com/dev/carbonio-storages-service:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+    environment:
+      - STORAGES_HOST=0.0.0.0
+      - CONSUL_URL=http://consul:8500
+      - POSTGRES_URL=carbonio-postgres:5432
+      - MAILBOX_URL=http://carbonio-mailbox:8080
+      - MAILBOX_ADMIN_URL=https://carbonio-mailbox:7071
+    depends_on:
+      carbonio-postgres:
+        condition: service_healthy
     volumes:
       - storages_data_advanced:/storage
 
@@ -75,6 +84,10 @@ services:
 
   carbonio-message-dispatcher:
     image: ${CARBONIO_MESSAGE_DISPATCHER_IMAGE:-registry.dev.zextras.com/dev/carbonio-message-dispatcher:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
 
   consul:
     volumes:
