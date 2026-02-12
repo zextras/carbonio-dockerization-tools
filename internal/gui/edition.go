@@ -8,6 +8,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/storage"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -41,13 +42,26 @@ func (a *App) ShowEditionScreen() {
 		a.ShowStartupScreen()
 	})
 
-	title := widget.NewRichTextFromMarkdown("# Select Carbonio Edition")
+	logo := newLogo(96)
+	title := widget.NewRichTextFromMarkdown("# Carbonio Docker GUI")
+
+	modeLabel := widget.NewRichText(&widget.TextSegment{
+		Text: "Select edition:",
+		Style: widget.RichTextStyle{
+			SizeName:  theme.SizeNameCaptionText,
+			ColorName: theme.ColorNamePlaceHolder,
+		},
+	})
 
 	content := container.NewVBox(
+		container.NewCenter(logo),
 		title,
-		choice,
+		container.NewPadded(container.NewVBox(
+			modeLabel,
+			choice,
+		)),
 		widget.NewSeparator(),
-		container.NewHBox(backBtn, nextBtn),
+		container.NewPadded(container.NewGridWithColumns(2, backBtn, nextBtn)),
 	)
 
 	a.window.SetContent(container.NewCenter(content))

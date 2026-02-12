@@ -36,5 +36,11 @@ func (t *carbonioTheme) Font(style fyne.TextStyle) fyne.Resource {
 }
 
 func (t *carbonioTheme) Size(name fyne.ThemeSizeName) float32 {
+	switch name {
+	case theme.SizeNamePadding:
+		return 3
+	case theme.SizeNameInnerPadding:
+		return 3
+	}
 	return theme.DefaultTheme().Size(name)
 }

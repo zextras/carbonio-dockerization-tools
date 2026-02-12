@@ -5,6 +5,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/storage"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -24,14 +25,26 @@ func (a *App) ShowStartupScreen() {
 	})
 	nextBtn.Importance = widget.HighImportance
 
+	logo := newLogo(96)
 	title := widget.NewRichTextFromMarkdown("# Carbonio Docker GUI")
 
+	modeLabel := widget.NewRichText(&widget.TextSegment{
+		Text: "Select startup mode:",
+		Style: widget.RichTextStyle{
+			SizeName:  theme.SizeNameCaptionText,
+			ColorName: theme.ColorNamePlaceHolder,
+		},
+	})
+
 	content := container.NewVBox(
+		container.NewCenter(logo),
 		title,
-		widget.NewLabel("Select startup mode:"),
-		choice,
+		container.NewPadded(container.NewVBox(
+			modeLabel,
+			choice,
+		)),
 		widget.NewSeparator(),
-		nextBtn,
+		container.NewPadded(nextBtn),
 	)
 
 	a.window.SetContent(container.NewCenter(content))

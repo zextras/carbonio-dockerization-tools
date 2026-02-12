@@ -12,6 +12,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -25,6 +26,7 @@ type serviceItem struct {
 	isBackend   bool
 	isRequired  bool
 	tagLocked   bool
+	useCustom   bool
 	deps        []string
 }
 
@@ -40,14 +42,46 @@ func extractImageBase(imageURL string) string {
 	return imageURL
 }
 
+func newSectionHeader(text string) *widget.RichText {
+	return widget.NewRichText(&widget.TextSegment{
+		Text: text,
+		Style: widget.RichTextStyle{
+			SizeName:  theme.SizeNameSubHeadingText,
+			ColorName: theme.ColorNamePrimary,
+			TextStyle: fyne.TextStyle{Bold: true},
+		},
+	})
+}
+
+func newCompactLabel(text string, bold bool) *widget.RichText {
+	style := widget.RichTextStyle{SizeName: theme.SizeNameCaptionText}
+	if bold {
+		style.TextStyle = fyne.TextStyle{Bold: true}
+	}
+	return widget.NewRichText(&widget.TextSegment{Text: text, Style: style})
+}
+
+func setCompactLabelStyle(label *widget.RichText, text string, italic bool, bold bool) {
+	label.Segments = []widget.RichTextSegment{
+		&widget.TextSegment{
+			Text: text,
+			Style: widget.RichTextStyle{
+				SizeName:  theme.SizeNameCaptionText,
+				TextStyle: fyne.TextStyle{Italic: italic, Bold: bold},
+			},
+		},
+	}
+	label.Refresh()
+}
+
 func (a *App) ShowServicesScreen(resolver *graph.DependencyResolver) {
 	backendItems := buildBackendItems(a.parsedConfig, a.edition)
 	frontendItems := buildFrontendItems(a.parsedConfig)
 
-	backendSection := widget.NewRichTextFromMarkdown("### Backend Services")
+	backendSection := newSectionHeader("Backend Services")
 	backendList := buildServiceList(backendItems, resolver, a.window)
 
-	frontendSection := widget.NewRichTextFromMarkdown("### Composed UI")
+	frontendSection := newSectionHeader("Composed UI")
 	frontendList := buildServiceList(frontendItems, nil, a.window)
 
 	startBtn := widget.NewButton("Start", func() {
@@ -98,8 +132,10 @@ func (a *App) ShowServicesScreen(resolver *graph.DependencyResolver) {
 		editionLabel = "Advanced"
 	}
 
-	title := widget.NewRichTextFromMarkdown("# Select Services and UI Images")
-	subtitle := widget.NewLabel(fmt.Sprintf("Edition: %s", editionLabel))
+	logo := newLogo(32)
+	title := widget.NewRichTextFromMarkdown("# Configure Services")
+	titleRow := container.NewHBox(logo, title)
+	subtitle := widget.NewLabel(fmt.Sprintf("Select and configure the services to deploy. Edition: %s", editionLabel))
 
 	scrollContent := container.NewVBox(
 		backendSection,
@@ -109,11 +145,22 @@ func (a *App) ShowServicesScreen(resolver *graph.DependencyResolver) {
 		frontendList,
 	)
 
+	topSection := container.NewPadded(container.NewPadded(container.NewVBox(titleRow, subtitle, widget.NewSeparator())))
+	bottomSection := container.NewPadded(container.NewPadded(container.NewPadded(container.NewVBox(
+		widget.NewSeparator(),
+		container.NewHBox(
+			container.NewPadded(container.NewPadded(backBtn)),
+			layout.NewSpacer(),
+			container.NewPadded(container.NewPadded(exportBtn)),
+			container.NewPadded(container.NewPadded(startBtn)),
+		),
+	))))
+
 	content := container.NewBorder(
-		container.NewVBox(title, subtitle, widget.NewSeparator()),
-		container.NewVBox(widget.NewSeparator(), container.NewHBox(backBtn, layout.NewSpacer(), exportBtn, startBtn)),
+		topSection,
+		bottomSection,
 		nil, nil,
-		container.NewVScroll(scrollContent),
+		container.NewVScroll(container.NewPadded(scrollContent)),
 	)
 
 	a.window.SetContent(content)
@@ -212,35 +259,81 @@ func buildServiceList(items []*serviceItem, resolver *graph.DependencyResolver, 
 			check.Disable()
 		}
 
+		nameLabel := newCompactLabel(item.name, item.isRequired)
+
 		tag := item.defaultTag
 		if item.customTag != "" {
 			tag = item.customTag
 		}
-		img := item.imageBase
-		if item.customImage != "" {
-			img = item.customImage
+		tagSelect := widget.NewSelect([]string{tag}, func(selected string) {
+			if selected != item.defaultTag {
+				item.customTag = selected
+			} else {
+				item.customTag = ""
+			}
+		})
+		tagSelect.SetSelected(tag)
+		if item.tagLocked || item.useCustom {
+			tagSelect.Disable()
 		}
 
-		nameLabel := widget.NewLabel(item.name)
-		nameLabel.TextStyle = fyne.TextStyle{Bold: item.isRequired}
+		customLabel := widget.NewRichText(&widget.TextSegment{
+			Text: "(custom)",
+			Style: widget.RichTextStyle{
+				SizeName:  theme.SizeNameCaptionText,
+				ColorName: theme.ColorNamePlaceHolder,
+				TextStyle: fyne.TextStyle{Italic: true},
+			},
+		})
+		if !item.useCustom {
+			customLabel.Hide()
+		}
 
-		imageLabel := widget.NewLabel(fmt.Sprintf("%s:%s", img, tag))
+		var resetBtn *widget.Button
+		resetBtn = widget.NewButton("Reset", func() {
+			item.customImage = ""
+			item.customTag = ""
+			item.useCustom = false
 
-		editBtn := widget.NewButton("Edit", func() {
-			showEditDialog(item, imageLabel, win)
+			setCompactLabelStyle(nameLabel, item.name, false, item.isRequired)
+			customLabel.Hide()
+			resetBtn.Hide()
+
+			if !item.tagLocked {
+				tagSelect.Enable()
+			}
+			tagSelect.SetSelected(item.defaultTag)
+		})
+		if !item.useCustom {
+			resetBtn.Hide()
+		}
+
+		customBtn := widget.NewButton("Custom", func() {
+			showCustomDialog(item, tagSelect, nameLabel, customLabel, resetBtn, win)
 		})
 		if item.tagLocked {
-			editBtn.Disable()
+			customBtn.Disable()
 		}
 
-		row := container.NewHBox(check, nameLabel, layout.NewSpacer(), imageLabel, editBtn)
+		leftCol := container.NewHBox(check, nameLabel, customLabel)
+		rightCol := container.NewHBox(tagSelect, customBtn, resetBtn)
+		row := container.NewGridWithColumns(3, leftCol, rightCol, layout.NewSpacer())
 		rows.Add(row)
+
+		// Fetch tags in background
+		go func(item *serviceItem, sel *widget.Select) {
+			tags := FetchTags(item.imageBase)
+			if tags != nil {
+				sel.Options = tags
+				sel.Refresh()
+			}
+		}(item, tagSelect)
 	}
 
 	return rows
 }
 
-func showEditDialog(item *serviceItem, imageLabel *widget.Label, win fyne.Window) {
+func showCustomDialog(item *serviceItem, tagSelect *widget.Select, nameLabel *widget.RichText, customLabel *widget.RichText, resetBtn *widget.Button, win fyne.Window) {
 	currentImage := item.imageBase
 	if item.customImage != "" {
 		currentImage = item.customImage
@@ -250,39 +343,124 @@ func showEditDialog(item *serviceItem, imageLabel *widget.Label, win fyne.Window
 		currentTag = item.customTag
 	}
 
-	imageEntry := widget.NewEntry()
-	imageEntry.SetText(currentImage)
-	tagEntry := widget.NewEntry()
-	tagEntry.SetText(currentTag)
+	originalValue := fmt.Sprintf("%s:%s", currentImage, currentTag)
 
-	items := []*widget.FormItem{
-		widget.NewFormItem("Image", imageEntry),
-		widget.NewFormItem("Tag", tagEntry),
+	imageEntry := widget.NewEntry()
+	imageEntry.SetText(originalValue)
+	imageEntry.SetPlaceHolder("registry.example.com/namespace/image:tag")
+
+	applyBtn := widget.NewButton("Apply", nil)
+	applyBtn.Importance = widget.HighImportance
+	applyBtn.Disable()
+
+	cancelBtn := widget.NewButton("Cancel", nil)
+
+	imageEntry.OnChanged = func(s string) {
+		trimmed := strings.TrimSpace(s)
+		if trimmed != originalValue && trimmed != "" {
+			applyBtn.Enable()
+		} else {
+			applyBtn.Disable()
+		}
 	}
 
-	dialog.ShowForm("Edit Image", "Apply", "Cancel", items, func(confirmed bool) {
-		if !confirmed {
+	entryLabel := widget.NewRichText(&widget.TextSegment{
+		Text: "Full image URL:",
+		Style: widget.RichTextStyle{
+			SizeName:  theme.SizeNameCaptionText,
+			ColorName: theme.ColorNamePlaceHolder,
+		},
+	})
+
+	dialogTitle := widget.NewRichText(&widget.TextSegment{
+		Text: fmt.Sprintf("Custom Image — %s", item.name),
+		Style: widget.RichTextStyle{
+			SizeName:  theme.SizeNameSubHeadingText,
+			TextStyle: fyne.TextStyle{Bold: true},
+		},
+	})
+
+	content := container.NewVBox(
+		dialogTitle,
+		widget.NewSeparator(),
+		entryLabel,
+		imageEntry,
+		widget.NewSeparator(),
+		container.NewGridWithColumns(2, cancelBtn, applyBtn),
+	)
+
+	d := dialog.NewCustomWithoutButtons("", content, win)
+
+	applyBtn.OnTapped = func() {
+		fullURL := strings.TrimSpace(imageEntry.Text)
+		if fullURL == "" {
 			return
 		}
-		newImage := strings.TrimSpace(imageEntry.Text)
-		newTag := strings.TrimSpace(tagEntry.Text)
-		if newImage != "" && newImage != item.imageBase {
-			item.customImage = newImage
-		}
-		if newTag != "" && newTag != item.defaultTag {
-			item.customTag = newTag
+
+		var parsedImage, parsedTag string
+		lastColon := strings.LastIndex(fullURL, ":")
+		lastSlash := strings.LastIndex(fullURL, "/")
+		if lastColon > lastSlash && lastColon != -1 {
+			parsedImage = fullURL[:lastColon]
+			parsedTag = fullURL[lastColon+1:]
+		} else {
+			parsedImage = fullURL
+			parsedTag = item.defaultTag
 		}
 
-		img := item.imageBase
-		if item.customImage != "" {
-			img = item.customImage
+		if parsedImage == item.imageBase {
+			// Same image, different tag — just a tag change, not a custom image
+			// Validate the tag against fetched registry tags if available
+			if len(tagSelect.Options) > 1 {
+				tagFound := false
+				for _, opt := range tagSelect.Options {
+					if opt == parsedTag {
+						tagFound = true
+						break
+					}
+				}
+				if !tagFound {
+					dialog.ShowError(
+						fmt.Errorf("Tag \"%s\" not found in registry for %s.\n\nAvailable tags can be seen in the dropdown.", parsedTag, item.name),
+						win,
+					)
+					return
+				}
+			}
+
+			item.customImage = ""
+			item.customTag = parsedTag
+			item.useCustom = false
+
+			setCompactLabelStyle(nameLabel, item.name, false, item.isRequired)
+			customLabel.Hide()
+			resetBtn.Hide()
+
+			if !item.tagLocked {
+				tagSelect.Enable()
+			}
+			tagSelect.SetSelected(parsedTag)
+		} else {
+			// Different image — true custom
+			item.customImage = parsedImage
+			item.customTag = parsedTag
+			item.useCustom = true
+
+			setCompactLabelStyle(nameLabel, item.name, true, false)
+			customLabel.Show()
+			resetBtn.Show()
+			tagSelect.Disable()
 		}
-		tag := item.defaultTag
-		if item.customTag != "" {
-			tag = item.customTag
-		}
-		imageLabel.SetText(fmt.Sprintf("%s:%s", img, tag))
-	}, win)
+
+		d.Hide()
+	}
+
+	cancelBtn.OnTapped = func() {
+		d.Hide()
+	}
+
+	d.Resize(fyne.NewSize(650, 250))
+	d.Show()
 }
 
 func autoSelectDeps(item *serviceItem, allItems []*serviceItem, resolver *graph.DependencyResolver) {
@@ -305,24 +483,34 @@ func collectSelections(backendItems, frontendItems []*serviceItem, edition parse
 			continue
 		}
 		image := item.imageBase
-		if item.customImage != "" {
-			image = item.customImage
-		}
 		tag := item.defaultTag
-		if item.customTag != "" {
+		if item.useCustom {
+			image = item.customImage
 			tag = item.customTag
+		} else {
+			if item.customImage != "" {
+				image = item.customImage
+			}
+			if item.customTag != "" {
+				tag = item.customTag
+			}
 		}
 		backend[item.name] = &config.ImageConfig{Image: image, Tag: tag}
 	}
 
 	for _, item := range frontendItems {
 		image := item.imageBase
-		if item.customImage != "" {
-			image = item.customImage
-		}
 		tag := item.defaultTag
-		if item.customTag != "" {
+		if item.useCustom {
+			image = item.customImage
 			tag = item.customTag
+		} else {
+			if item.customImage != "" {
+				image = item.customImage
+			}
+			if item.customTag != "" {
+				tag = item.customTag
+			}
 		}
 		if !item.selected {
 			tag = "disabled"

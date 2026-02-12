@@ -1,11 +1,11 @@
-name: carbonio-dockerization
+name: carbonio-dockerization-tools
 arch: "${GOARCH}"
 platform: linux
 version: "${VERSION}"
-maintainer: "Zextras <info@zextras.com>"
+maintainer: "Matteo Galvagni <matteo.galvagni@zextras.com>"
 description: "Carbonio dockerization CLI and GUI tools"
 vendor: "Zextras"
-homepage: "https://github.com/nicola-galvagni/carbonio-docker-cli"
+homepage: "https://github.com/galvagnimatteo/carbonio-dockerization-tools"
 license: "AGPL-3.0"
 
 contents:
