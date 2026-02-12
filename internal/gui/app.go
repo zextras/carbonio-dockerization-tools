@@ -78,7 +78,7 @@ func (a *App) exportLogs() {
 			return
 		}
 
-		dialog.ShowInformation("Logs Exported", fmt.Sprintf("Saved to:\n%s", destPath), a.window)
+		showSuccessDialog("Logs Exported", fmt.Sprintf("Saved to:\n%s", destPath), a.window)
 	}, a.window)
 	fd.Show()
 }

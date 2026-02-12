@@ -41,6 +41,8 @@ func (t *carbonioTheme) Size(name fyne.ThemeSizeName) float32 {
 		return 3
 	case theme.SizeNameInnerPadding:
 		return 3
+	case theme.SizeNameText:
+		return 11
 	}
 	return theme.DefaultTheme().Size(name)
 }

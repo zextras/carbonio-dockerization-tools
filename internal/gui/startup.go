@@ -44,7 +44,7 @@ func (a *App) ShowStartupScreen() {
 			choice,
 		)),
 		widget.NewSeparator(),
-		container.NewPadded(nextBtn),
+		wideButton(nextBtn, 200),
 	)
 
 	a.window.SetContent(container.NewCenter(content))

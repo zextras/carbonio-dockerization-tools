@@ -149,7 +149,7 @@ func (a *App) ShowMonitorScreen(envVars string, cmdParts []string, visibleServic
 				log.Printf("Cleanup error: %v", err)
 			}
 			prog.Hide()
-			dialog.ShowInformation("Cleanup Complete", "All containers have been stopped and cleaned up.", a.window)
+			showSuccessDialog("Cleanup Complete", "All containers have been stopped and cleaned up.", a.window)
 		}()
 	})
 	stopBtn.Importance = widget.DangerImportance

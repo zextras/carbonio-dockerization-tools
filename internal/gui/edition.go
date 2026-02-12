@@ -3,6 +3,7 @@ package gui
 import (
 	"carbonio-docker-cli/internal/graph"
 	"carbonio-docker-cli/internal/parser"
+	"fmt"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -61,7 +62,7 @@ func (a *App) ShowEditionScreen() {
 			choice,
 		)),
 		widget.NewSeparator(),
-		container.NewPadded(container.NewGridWithColumns(2, backBtn, nextBtn)),
+		container.NewGridWithColumns(2, wideButton(backBtn, 120), wideButton(nextBtn, 120)),
 	)
 
 	a.window.SetContent(container.NewCenter(content))
@@ -142,7 +143,10 @@ func (a *App) showSaveConfigDialog(afterSave func()) {
 				path := writer.URI().Path()
 				if saveErr := a.saveConfig(path); saveErr != nil {
 					dialog.ShowError(saveErr, a.window)
+					afterSave()
+					return
 				}
+				showSuccessDialog("Config Saved", fmt.Sprintf("Saved to:\n%s", path), a.window)
 				afterSave()
 			}, a.window)
 			fd.SetFilter(storage.NewExtensionFileFilter([]string{".yaml", ".yml"}))

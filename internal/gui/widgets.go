@@ -6,6 +6,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -15,6 +16,46 @@ var (
 	colorError    = color.NRGBA{R: 255, G: 60, B: 60, A: 255}
 	colorUnknown  = color.NRGBA{R: 150, G: 150, B: 150, A: 255}
 )
+
+func wideButton(btn *widget.Button, minWidth float32) fyne.CanvasObject {
+	spacer := canvas.NewRectangle(color.Transparent)
+	spacer.SetMinSize(fyne.NewSize(minWidth, 36))
+	return container.NewStack(spacer, btn)
+}
+
+func showSuccessDialog(title, message string, win fyne.Window) {
+	titleLabel := widget.NewRichText(&widget.TextSegment{
+		Text: title,
+		Style: widget.RichTextStyle{
+			SizeName:  theme.SizeNameSubHeadingText,
+			TextStyle: fyne.TextStyle{Bold: true},
+		},
+	})
+	messageLabel := widget.NewLabel(message)
+
+	okBtn := widget.NewButton("OK", nil)
+	okBtn.Importance = widget.HighImportance
+
+	minWidth := canvas.NewRectangle(color.Transparent)
+	minWidth.SetMinSize(fyne.NewSize(500, 0))
+
+	bg := canvas.NewRectangle(theme.OverlayBackgroundColor())
+	bg.CornerRadius = 8
+
+	inner := container.NewVBox(
+		minWidth,
+		titleLabel,
+		widget.NewSeparator(),
+		messageLabel,
+		widget.NewSeparator(),
+		okBtn,
+	)
+
+	card := container.NewStack(bg, container.NewPadded(inner))
+	pop := widget.NewModalPopUp(card, win.Canvas())
+	okBtn.OnTapped = func() { pop.Hide() }
+	pop.Show()
+}
 
 func NewStatusBadge(state string) *fyne.Container {
 	var c color.Color

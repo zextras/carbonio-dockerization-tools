@@ -25,6 +25,10 @@ type tagsResponse struct {
 
 const registryHost = "registry.dev.zextras.com"
 
+func IsOurRegistry(imageBase string) bool {
+	return strings.HasPrefix(imageBase, registryHost+"/")
+}
+
 func FetchTags(imageBase string) []string {
 	parts := strings.SplitN(imageBase, "/", 2)
 	if len(parts) != 2 {

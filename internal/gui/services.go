@@ -117,7 +117,9 @@ func (a *App) ShowServicesScreen(resolver *graph.DependencyResolver) {
 			path := writer.URI().Path()
 			if saveErr := a.saveConfig(path); saveErr != nil {
 				dialog.ShowError(saveErr, a.window)
+				return
 			}
+			showSuccessDialog("Config Exported", fmt.Sprintf("Saved to:\n%s", path), a.window)
 		}, a.window)
 		fd.SetFileName("carbonio-config.yaml")
 		fd.Show()
@@ -135,7 +137,20 @@ func (a *App) ShowServicesScreen(resolver *graph.DependencyResolver) {
 	logo := newLogo(32)
 	title := widget.NewRichTextFromMarkdown("# Configure Services")
 	titleRow := container.NewHBox(logo, title)
-	subtitle := widget.NewLabel(fmt.Sprintf("Select and configure the services to deploy. Edition: %s", editionLabel))
+	editionSubtitle := widget.NewRichText(&widget.TextSegment{
+		Text: editionLabel,
+		Style: widget.RichTextStyle{
+			SizeName:  theme.SizeNameSubHeadingText,
+			TextStyle: fyne.TextStyle{Bold: true},
+		},
+	})
+	description := widget.NewRichText(&widget.TextSegment{
+		Text: "Select and configure the services to deploy.",
+		Style: widget.RichTextStyle{
+			SizeName:  theme.SizeNameCaptionText,
+			ColorName: theme.ColorNamePlaceHolder,
+		},
+	})
 
 	scrollContent := container.NewVBox(
 		backendSection,
@@ -145,16 +160,13 @@ func (a *App) ShowServicesScreen(resolver *graph.DependencyResolver) {
 		frontendList,
 	)
 
-	topSection := container.NewPadded(container.NewPadded(container.NewVBox(titleRow, subtitle, widget.NewSeparator())))
-	bottomSection := container.NewPadded(container.NewPadded(container.NewPadded(container.NewVBox(
-		widget.NewSeparator(),
-		container.NewHBox(
-			container.NewPadded(container.NewPadded(backBtn)),
-			layout.NewSpacer(),
-			container.NewPadded(container.NewPadded(exportBtn)),
-			container.NewPadded(container.NewPadded(startBtn)),
-		),
-	))))
+	topSection := container.NewPadded(container.NewPadded(container.NewVBox(titleRow, editionSubtitle, description, widget.NewSeparator())))
+	bottomSection := container.NewPadded(container.NewPadded(container.NewHBox(
+		wideButton(backBtn, 120),
+		layout.NewSpacer(),
+		wideButton(exportBtn, 150),
+		wideButton(startBtn, 120),
+	)))
 
 	content := container.NewBorder(
 		topSection,
@@ -273,7 +285,8 @@ func buildServiceList(items []*serviceItem, resolver *graph.DependencyResolver, 
 			}
 		})
 		tagSelect.SetSelected(tag)
-		if item.tagLocked || item.useCustom {
+		externalImage := !IsOurRegistry(item.imageBase)
+		if item.tagLocked || item.useCustom || externalImage {
 			tagSelect.Disable()
 		}
 
@@ -311,7 +324,7 @@ func buildServiceList(items []*serviceItem, resolver *graph.DependencyResolver, 
 		customBtn := widget.NewButton("Custom", func() {
 			showCustomDialog(item, tagSelect, nameLabel, customLabel, resetBtn, win)
 		})
-		if item.tagLocked {
+		if item.tagLocked || externalImage {
 			customBtn.Disable()
 		}
 
@@ -323,10 +336,26 @@ func buildServiceList(items []*serviceItem, resolver *graph.DependencyResolver, 
 		// Fetch tags in background
 		go func(item *serviceItem, sel *widget.Select) {
 			tags := FetchTags(item.imageBase)
-			if tags != nil {
-				sel.Options = tags
-				sel.Refresh()
+			if tags == nil {
+				return
 			}
+			sel.Options = tags
+			// Auto-select best default: devel > latest > first
+			bestTag := tags[0]
+			for _, t := range tags {
+				if t == "devel" {
+					bestTag = "devel"
+					break
+				}
+				if t == "latest" {
+					bestTag = "latest"
+				}
+			}
+			if item.customTag == "" {
+				sel.SetSelected(bestTag)
+				item.defaultTag = bestTag
+			}
+			sel.Refresh()
 		}(item, tagSelect)
 	}
 
