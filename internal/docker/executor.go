@@ -2,12 +2,14 @@ package docker
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"os/signal"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -296,6 +298,46 @@ func (e *Executor) ExecuteWithSignalHandler(envVars string, cmdParts []string, o
 	} else {
 		log.Println("Docker compose process exited normally")
 	}
+
+	return nil
+}
+
+func (e *Executor) StreamServiceLogs(ctx context.Context, serviceName string, tail int, outputChan chan string) error {
+	projectName := e.getProjectName()
+	cmd := e.createDockerCommand("compose", "--project-name", projectName, "logs", "-f", "--tail", strconv.Itoa(tail), serviceName)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		close(outputChan)
+		return fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+	cmd.Stderr = cmd.Stdout // merge stderr into stdout
+
+	if err := cmd.Start(); err != nil {
+		close(outputChan)
+		return fmt.Errorf("failed to start log stream: %w", err)
+	}
+
+	// Kill process when context is cancelled
+	go func() {
+		<-ctx.Done()
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+		}
+	}()
+
+	go func() {
+		defer close(outputChan)
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			select {
+			case <-ctx.Done():
+				return
+			case outputChan <- scanner.Text():
+			}
+		}
+		cmd.Wait()
+	}()
 
 	return nil
 }

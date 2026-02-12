@@ -15,6 +15,7 @@ var (
 	colorStarting = color.NRGBA{R: 255, G: 165, B: 0, A: 255}
 	colorError    = color.NRGBA{R: 255, G: 60, B: 60, A: 255}
 	colorUnknown  = color.NRGBA{R: 150, G: 150, B: 150, A: 255}
+	colorStopped  = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
 )
 
 func wideButton(btn *widget.Button, minWidth float32) fyne.CanvasObject {
@@ -54,6 +55,77 @@ func showSuccessDialog(title, message string, win fyne.Window) {
 	card := container.NewStack(bg, container.NewPadded(inner))
 	pop := widget.NewModalPopUp(card, win.Canvas())
 	okBtn.OnTapped = func() { pop.Hide() }
+	pop.Show()
+}
+
+func showProgressModal(title, message string, win fyne.Window) *widget.PopUp {
+	titleLabel := widget.NewRichText(&widget.TextSegment{
+		Text: title,
+		Style: widget.RichTextStyle{
+			SizeName:  theme.SizeNameSubHeadingText,
+			TextStyle: fyne.TextStyle{Bold: true},
+		},
+	})
+	messageLabel := widget.NewLabel(message)
+
+	progress := widget.NewProgressBarInfinite()
+
+	minWidth := canvas.NewRectangle(color.Transparent)
+	minWidth.SetMinSize(fyne.NewSize(500, 0))
+
+	bg := canvas.NewRectangle(theme.OverlayBackgroundColor())
+	bg.CornerRadius = 8
+
+	inner := container.NewVBox(
+		minWidth,
+		titleLabel,
+		widget.NewSeparator(),
+		messageLabel,
+		progress,
+	)
+
+	card := container.NewStack(bg, container.NewPadded(inner))
+	pop := widget.NewModalPopUp(card, win.Canvas())
+	pop.Show()
+	return pop
+}
+
+func showCleanupCompleteDialog(win fyne.Window, onOK func()) {
+	titleLabel := widget.NewRichText(&widget.TextSegment{
+		Text: "Cleanup Complete",
+		Style: widget.RichTextStyle{
+			SizeName:  theme.SizeNameSubHeadingText,
+			TextStyle: fyne.TextStyle{Bold: true},
+		},
+	})
+	messageLabel := widget.NewLabel("All containers have been stopped and cleaned up.")
+
+	okBtn := widget.NewButton("OK", nil)
+	okBtn.Importance = widget.HighImportance
+
+	minWidth := canvas.NewRectangle(color.Transparent)
+	minWidth.SetMinSize(fyne.NewSize(500, 0))
+
+	bg := canvas.NewRectangle(theme.OverlayBackgroundColor())
+	bg.CornerRadius = 8
+
+	inner := container.NewVBox(
+		minWidth,
+		titleLabel,
+		widget.NewSeparator(),
+		messageLabel,
+		widget.NewSeparator(),
+		okBtn,
+	)
+
+	card := container.NewStack(bg, container.NewPadded(inner))
+	pop := widget.NewModalPopUp(card, win.Canvas())
+	okBtn.OnTapped = func() {
+		pop.Hide()
+		if onOK != nil {
+			onOK()
+		}
+	}
 	pop.Show()
 }
 

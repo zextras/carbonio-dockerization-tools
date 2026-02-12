@@ -4,6 +4,7 @@ import (
 	"carbonio-docker-cli/internal/graph"
 	"carbonio-docker-cli/internal/parser"
 	"image/color"
+	"log"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -151,9 +152,20 @@ func (a *App) handleConfigImport(filePath string) {
 }
 
 func (a *App) startMonitor(envVars string, cmdParts []string) {
-	if a.cleanDatabase {
-		a.executor.CleanDatabaseVolumes()
-	}
 	visibleServices := a.buildVisibleServicesList()
+	if a.cleanDatabase {
+		prog := showProgressModal("Cleaning Database",
+			"Removing database volumes for a fresh start...", a.window)
+		go func() {
+			if err := a.executor.CleanDatabaseVolumes(); err != nil {
+				log.Printf("Clean database error: %v", err)
+			}
+			fyne.Do(func() {
+				prog.Hide()
+				a.ShowMonitorScreen(envVars, cmdParts, visibleServices)
+			})
+		}()
+		return
+	}
 	a.ShowMonitorScreen(envVars, cmdParts, visibleServices)
 }

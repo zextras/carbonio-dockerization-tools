@@ -1,21 +1,26 @@
 package gui
 
 import (
+	"carbonio-docker-cli/internal/parser"
 	"carbonio-docker-cli/internal/provisioner"
 	"context"
 	"encoding/json"
 	"fmt"
+	"image/color"
 	"log"
 	"os/exec"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -29,6 +34,14 @@ const (
 	stateRunning
 	stateError
 )
+
+const maxLogLines = 500
+
+var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b[^[\]]*`)
+
+func stripANSI(s string) string {
+	return ansiRegex.ReplaceAllString(s, "")
+}
 
 func (s serviceState) String() string {
 	switch s {
@@ -55,6 +68,17 @@ type dockerComposeStatus struct {
 	Service string `json:"Service"`
 }
 
+type monitoredService struct {
+	name      string
+	expanded  bool
+	cancel    context.CancelFunc
+	logEntry  *widget.Entry
+	logLines  int
+	logBox    *fyne.Container
+	dot       *canvas.Circle
+	toggleBtn *widget.Button
+}
+
 func (a *App) ShowMonitorScreen(envVars string, cmdParts []string, visibleServices []string) {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -63,6 +87,10 @@ func (a *App) ShowMonitorScreen(envVars string, cmdParts []string, visibleServic
 		states[svc] = stateUnknown
 	}
 	var mu sync.Mutex
+
+	sortedServices := make([]string, len(visibleServices))
+	copy(sortedServices, visibleServices)
+	sort.Strings(sortedServices)
 
 	// Parse provisioned accounts
 	accounts, err := provisioner.ParseProvisioningScript(a.workDir)
@@ -74,102 +102,299 @@ func (a *App) ShowMonitorScreen(envVars string, cmdParts []string, visibleServic
 	// Accounts panel
 	accountsBox := container.NewVBox()
 	if len(accounts) > 0 {
-		accountsBox.Add(widget.NewRichTextFromMarkdown("### Available Accounts"))
+		accountsHeader := newSectionHeader("Available Accounts")
+		accountsBox.Add(accountsHeader)
 		for _, acc := range accounts {
 			adminBadge := ""
 			if acc.IsAdmin {
 				adminBadge = " [ADMIN]"
 			}
-			accountsBox.Add(widget.NewLabel(fmt.Sprintf("  %s / %s%s", acc.Username, acc.Password, adminBadge)))
+			accountsBox.Add(newCompactLabel(fmt.Sprintf("  %s / %s%s", acc.Username, acc.Password, adminBadge), false))
 		}
 		accountsBox.Add(widget.NewSeparator())
 	}
 
-	// Service states list
-	servicesList := widget.NewList(
-		func() int {
-			return len(visibleServices)
-		},
-		func() fyne.CanvasObject {
-			return container.NewHBox(
-				container.NewHBox(), // placeholder for badge
-				widget.NewLabel("service-name-placeholder"),
-			)
-		},
-		func(id widget.ListItemID, obj fyne.CanvasObject) {
-			row := obj.(*fyne.Container)
-			mu.Lock()
-			sortedNames := make([]string, len(visibleServices))
-			copy(sortedNames, visibleServices)
-			sort.Strings(sortedNames)
-			name := sortedNames[id]
-			state := states[name]
-			mu.Unlock()
+	// Global status indicator
+	globalStatusLabel := canvas.NewText("Waiting...", colorUnknown)
+	globalStatusLabel.TextSize = 13
+	globalStatusLabel.TextStyle = fyne.TextStyle{Bold: true}
 
-			badge := NewStatusBadge(state.String())
-			nameLabel := widget.NewLabel(name)
+	// Build per-service expandable entries
+	monitored := make(map[string]*monitoredService)
+	servicesGrid := container.NewVBox()
 
-			row.Objects = []fyne.CanvasObject{badge, nameLabel}
-			row.Refresh()
-		},
-	)
-	servicesList.OnSelected = func(_ widget.ListItemID) {
-		servicesList.UnselectAll()
+	for _, name := range sortedServices {
+		svc := &monitoredService{name: name}
+
+		// Colored dot for state
+		dot := canvas.NewCircle(colorUnknown)
+		dotSpacer := canvas.NewRectangle(color.Transparent)
+		dotSpacer.SetMinSize(fyne.NewSize(10, 10))
+		dotBox := container.NewStack(dotSpacer, dot)
+		svc.dot = dot
+
+		// Log entry (hidden by default) — not disabled so text stays white
+		logEntry := widget.NewMultiLineEntry()
+		logEntry.SetMinRowsVisible(8)
+		svc.logEntry = logEntry
+
+		logBox := container.NewStack(logEntry)
+		logBox.Hide()
+		svc.logBox = logBox
+
+		monitored[name] = svc
+
+		nameLabel := newCompactLabel(name, false)
+
+		svcName := name // capture for closure
+		toggleBtn := widget.NewButtonWithIcon("", theme.MenuDropDownIcon(), func() {
+			ms := monitored[svcName]
+			if ms.expanded {
+				// Collapse
+				ms.expanded = false
+				if ms.cancel != nil {
+					ms.cancel()
+					ms.cancel = nil
+				}
+				ms.toggleBtn.SetIcon(theme.MenuDropDownIcon())
+				ms.logBox.Hide()
+			} else {
+				// Expand
+				ms.expanded = true
+				ms.logEntry.SetText("")
+				ms.logLines = 0
+				ms.toggleBtn.SetIcon(theme.MenuDropUpIcon())
+				ms.logBox.Show()
+
+				logCtx, logCancel := context.WithCancel(ctx)
+				ms.cancel = logCancel
+
+				outputChan := make(chan string, 100)
+				go func() {
+					if err := a.executor.StreamServiceLogs(logCtx, svcName, 50, outputChan); err != nil {
+						log.Printf("Failed to start log stream for %s: %v", svcName, err)
+						return
+					}
+				}()
+
+				go func() {
+					for {
+						select {
+						case <-logCtx.Done():
+							return
+						case line, ok := <-outputChan:
+							if !ok {
+								return
+							}
+							cleaned := stripANSI(line)
+							fyne.Do(func() {
+								ms.logLines++
+								if ms.logLines > maxLogLines {
+									// Trim oldest lines
+									text := ms.logEntry.Text
+									idx := strings.Index(text, "\n")
+									if idx >= 0 {
+										text = text[idx+1:]
+									}
+									ms.logEntry.SetText(text + cleaned + "\n")
+								} else {
+									ms.logEntry.SetText(ms.logEntry.Text + cleaned + "\n")
+								}
+								ms.logEntry.CursorRow = ms.logLines
+							})
+						}
+					}
+				}()
+			}
+		})
+		toggleBtn.Importance = widget.LowImportance
+		svc.toggleBtn = toggleBtn
+
+		// Layout: [dot] name ............. [▼]
+		headerRow := container.NewBorder(nil, nil,
+			container.NewCenter(dotBox),
+			toggleBtn,
+			nameLabel,
+		)
+		servicesGrid.Add(headerRow)
+		servicesGrid.Add(logBox)
 	}
 
-	// Log output
-	logEntry := widget.NewMultiLineEntry()
-	logEntry.Disable()
-	logEntry.SetMinRowsVisible(10)
-
-	showLogs := false
-	logContainer := container.NewStack(logEntry)
-	logContainer.Hide()
-
-	toggleLogsBtn := widget.NewButton("Show Logs", func() {
-		showLogs = !showLogs
-		if showLogs {
-			logContainer.Show()
-		} else {
-			logContainer.Hide()
-		}
+	exportBtn := widget.NewButton("Export Config", func() {
+		fd := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
+			if err != nil {
+				dialog.ShowError(err, a.window)
+				return
+			}
+			if writer == nil {
+				return
+			}
+			writer.Close()
+			path := writer.URI().Path()
+			if saveErr := a.saveConfig(path); saveErr != nil {
+				dialog.ShowError(saveErr, a.window)
+				return
+			}
+			showSuccessDialog("Config Exported", fmt.Sprintf("Saved to:\n%s", path), a.window)
+		}, a.window)
+		fd.SetFileName("carbonio-config.yaml")
+		fd.Show()
 	})
 
 	cleaning := false
-	stopBtn := widget.NewButton("Stop & Cleanup", func() {
+	cleanDone := false
+
+	doCleanup := func() {
 		if cleaning {
 			return
 		}
 		cleaning = true
 		cancel()
-		prog := dialog.NewProgressInfinite("Stopping", "Stopping and cleaning up containers...", a.window)
-		prog.Show()
+
+		// Set all dots to white (stopped) — called from UI thread
+		mu.Lock()
+		for _, svc := range visibleServices {
+			states[svc] = stateUnknown
+		}
+		mu.Unlock()
+		for _, ms := range monitored {
+			ms.dot.FillColor = colorStopped
+			ms.dot.Refresh()
+		}
+		globalStatusLabel.Text = "Stopping..."
+		globalStatusLabel.Color = colorStarting
+		globalStatusLabel.Refresh()
+
+		prog := showProgressModal("Stopping", "Stopping and cleaning up containers...", a.window)
 		go func() {
 			if err := a.executor.StopAndCleanup(); err != nil {
 				log.Printf("Cleanup error: %v", err)
 			}
-			prog.Hide()
-			showSuccessDialog("Cleanup Complete", "All containers have been stopped and cleaned up.", a.window)
+			fyne.Do(func() {
+				cleanDone = true
+				prog.Hide()
+				globalStatusLabel.Text = "Stopped"
+				globalStatusLabel.Color = colorStopped
+				globalStatusLabel.Refresh()
+				showCleanupCompleteDialog(a.window, func() {
+					a.window.Close()
+				})
+			})
 		}()
+	}
+
+	stopBtn := widget.NewButton("Stop & Cleanup", func() {
+		doCleanup()
 	})
 	stopBtn.Importance = widget.DangerImportance
 
+	// Header
+	logo := newLogo(32)
 	title := widget.NewRichTextFromMarkdown("# Carbonio Services Monitor")
+	titleRow := container.NewHBox(logo, title)
 
-	topSection := container.NewVBox(title, accountsBox)
-	bottomSection := container.NewVBox(
-		widget.NewSeparator(),
-		container.NewHBox(toggleLogsBtn, layout.NewSpacer(), stopBtn),
-	)
+	editionLabel := "CE (Community Edition)"
+	if a.edition == parser.EditionAdvanced {
+		editionLabel = "Advanced"
+	}
+	editionSubtitle := widget.NewRichText(&widget.TextSegment{
+		Text: editionLabel,
+		Style: widget.RichTextStyle{
+			SizeName:  theme.SizeNameSubHeadingText,
+			TextStyle: fyne.TextStyle{Bold: true},
+		},
+	})
+
+	servicesHeaderLabel := newSectionHeader("Services")
+	servicesHeaderRow := container.NewHBox(servicesHeaderLabel, layout.NewSpacer(), globalStatusLabel)
+
+	topSection := container.NewPadded(container.NewPadded(container.NewVBox(
+		titleRow, editionSubtitle, widget.NewSeparator(),
+		accountsBox,
+		servicesHeaderRow,
+	)))
+
+	bottomSection := container.NewPadded(container.NewPadded(container.NewHBox(
+		wideButton(exportBtn, 150),
+		layout.NewSpacer(),
+		wideButton(stopBtn, 150),
+	)))
 
 	content := container.NewBorder(
 		topSection,
-		container.NewVBox(logContainer, bottomSection),
+		bottomSection,
 		nil, nil,
-		servicesList,
+		container.NewVScroll(container.NewPadded(servicesGrid)),
 	)
 
 	a.window.SetContent(content)
+
+	updateGlobalStatus := func() {
+		// Must be called with mu held
+		hasError := false
+		hasPulling := false
+		hasStarting := false
+		allRunning := true
+
+		for _, svc := range visibleServices {
+			st := states[svc]
+			switch st {
+			case stateRunning:
+				// ok
+			case statePulling:
+				hasPulling = true
+				allRunning = false
+			case stateCreating, stateStarting:
+				hasStarting = true
+				allRunning = false
+			case stateError:
+				hasError = true
+				allRunning = false
+			default:
+				allRunning = false
+			}
+		}
+
+		if hasError {
+			globalStatusLabel.Text = "Failing"
+			globalStatusLabel.Color = colorError
+		} else if allRunning {
+			globalStatusLabel.Text = "Ready"
+			globalStatusLabel.Color = colorRunning
+		} else if hasPulling {
+			globalStatusLabel.Text = "Pulling..."
+			globalStatusLabel.Color = colorStarting
+		} else if hasStarting {
+			globalStatusLabel.Text = "Starting..."
+			globalStatusLabel.Color = colorStarting
+		} else {
+			globalStatusLabel.Text = "Waiting..."
+			globalStatusLabel.Color = colorUnknown
+		}
+		globalStatusLabel.Refresh()
+	}
+
+	refreshBadges := func() {
+		mu.Lock()
+		defer mu.Unlock()
+		for name, ms := range monitored {
+			stateStr := states[name].String()
+			var c color.Color
+			switch stateStr {
+			case "Running":
+				c = colorRunning
+			case "Starting", "Pulling", "Creating":
+				c = colorStarting
+			case "Error":
+				c = colorError
+			default:
+				c = colorUnknown
+			}
+			ms.dot.FillColor = c
+			ms.dot.Refresh()
+		}
+		updateGlobalStatus()
+	}
 
 	// Start docker compose
 	outputChan := make(chan string, 100)
@@ -181,7 +406,7 @@ func (a *App) ShowMonitorScreen(envVars string, cmdParts []string, visibleServic
 		}
 	}()
 
-	// Goroutine 1: read output, append to log
+	// Goroutine: read compose output for state parsing
 	go func() {
 		for {
 			select {
@@ -191,17 +416,15 @@ func (a *App) ShowMonitorScreen(envVars string, cmdParts []string, visibleServic
 				if !ok {
 					return
 				}
-				logEntry.SetText(logEntry.Text + line + "\n")
-				logEntry.CursorRow = len(strings.Split(logEntry.Text, "\n")) - 1
-
-				// Parse log line for state hints
 				parseLogForStates(line, visibleServices, states, &mu)
-				servicesList.Refresh()
+				fyne.Do(func() {
+					refreshBadges()
+				})
 			}
 		}
 	}()
 
-	// Goroutine 2: poll docker compose ps every 2s
+	// Goroutine: poll docker compose ps every 2s
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
@@ -216,19 +439,27 @@ func (a *App) ShowMonitorScreen(envVars string, cmdParts []string, visibleServic
 					states[k] = v
 				}
 				mu.Unlock()
-				servicesList.Refresh()
+				fyne.Do(func() {
+					refreshBadges()
+				})
 			}
 		}
 	}()
 
 	// Cleanup on window close
 	a.window.SetCloseIntercept(func() {
-		if !cleaning {
-			cleaning = true
-			cancel()
-			a.executor.StopAndCleanup()
+		if cleanDone {
+			// Cleanup already finished, allow close
+			a.window.SetCloseIntercept(nil)
+			a.window.Close()
+			return
 		}
-		a.window.Close()
+		if cleaning {
+			// Cleanup in progress, ignore close request
+			return
+		}
+		// Running: start cleanup (which will show the modal and close on OK)
+		doCleanup()
 	})
 }
 

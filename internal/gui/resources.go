@@ -14,6 +14,10 @@ func logoResource() fyne.Resource {
 	return fyne.NewStaticResource("carbonio-docker-logo.png", logoPNG)
 }
 
+func LogoResource() fyne.Resource {
+	return logoResource()
+}
+
 func newLogo(size float32) *canvas.Image {
 	img := canvas.NewImageFromResource(logoResource())
 	img.FillMode = canvas.ImageFillContain

@@ -339,7 +339,6 @@ func buildServiceList(items []*serviceItem, resolver *graph.DependencyResolver, 
 			if tags == nil {
 				return
 			}
-			sel.Options = tags
 			// Auto-select best default: devel > latest > first
 			bestTag := tags[0]
 			for _, t := range tags {
@@ -351,11 +350,14 @@ func buildServiceList(items []*serviceItem, resolver *graph.DependencyResolver, 
 					bestTag = "latest"
 				}
 			}
-			if item.customTag == "" {
-				sel.SetSelected(bestTag)
-				item.defaultTag = bestTag
-			}
-			sel.Refresh()
+			fyne.Do(func() {
+				sel.Options = tags
+				if item.customTag == "" {
+					sel.SetSelected(bestTag)
+					item.defaultTag = bestTag
+				}
+				sel.Refresh()
+			})
 		}(item, tagSelect)
 	}
 

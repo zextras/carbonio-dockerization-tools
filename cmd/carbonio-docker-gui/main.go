@@ -39,7 +39,9 @@ func main() {
 
 	a := app.NewWithID("com.zextras.carbonio-dockerization-gui")
 	a.Settings().SetTheme(gui.NewCarbonioTheme())
+	a.SetIcon(gui.LogoResource())
 	w := a.NewWindow("Carbonio dockerization GUI")
+	w.SetIcon(gui.LogoResource())
 	w.Resize(fyne.NewSize(900, 700))
 
 	// Preflight checks
