@@ -165,7 +165,8 @@ func showErrorDialog(message string, win fyne.Window) {
 }
 
 // ShowFatalErrorDialog shows a custom error modal. OK closes the window (exits the app).
-func ShowFatalErrorDialog(message string, win fyne.Window) {
+// When onGuide is non-nil, a "Guide" button is shown alongside "OK".
+func ShowFatalErrorDialog(message string, win fyne.Window, onGuide func()) {
 	titleLabel := widget.NewRichText(&widget.TextSegment{
 		Text: "Error",
 		Style: widget.RichTextStyle{
@@ -179,6 +180,16 @@ func ShowFatalErrorDialog(message string, win fyne.Window) {
 	okBtn := widget.NewButton("OK", nil)
 	okBtn.Importance = widget.MediumImportance
 
+	var buttons fyne.CanvasObject
+	if onGuide != nil {
+		guideBtn := widget.NewButton("Guide", nil)
+		guideBtn.Importance = widget.MediumImportance
+		guideBtn.OnTapped = func() { onGuide() }
+		buttons = container.NewGridWithColumns(2, guideBtn, okBtn)
+	} else {
+		buttons = okBtn
+	}
+
 	minWidth := canvas.NewRectangle(color.Transparent)
 	minWidth.SetMinSize(fyne.NewSize(500, 0))
 
@@ -191,7 +202,7 @@ func ShowFatalErrorDialog(message string, win fyne.Window) {
 		widget.NewSeparator(),
 		messageLabel,
 		widget.NewSeparator(),
-		okBtn,
+		buttons,
 	)
 
 	card := container.NewStack(bg, container.NewPadded(inner))
@@ -205,7 +216,8 @@ func ShowFatalErrorDialog(message string, win fyne.Window) {
 
 // ShowVPNRetryDialog shows a custom modal for registry connectivity failure.
 // Retry closes the modal and calls onRetry. Close exits the app.
-func ShowVPNRetryDialog(message string, win fyne.Window, onRetry func()) {
+// When onGuide is non-nil, a "Guide" button is shown alongside Close and Retry.
+func ShowVPNRetryDialog(message string, win fyne.Window, onRetry func(), onGuide func()) {
 	titleLabel := widget.NewRichText(&widget.TextSegment{
 		Text: "Connection Error",
 		Style: widget.RichTextStyle{
@@ -222,6 +234,16 @@ func ShowVPNRetryDialog(message string, win fyne.Window, onRetry func()) {
 	closeBtn := widget.NewButton("Close", nil)
 	closeBtn.Importance = widget.MediumImportance
 
+	var buttons fyne.CanvasObject
+	if onGuide != nil {
+		guideBtn := widget.NewButton("Guide", nil)
+		guideBtn.Importance = widget.MediumImportance
+		guideBtn.OnTapped = func() { onGuide() }
+		buttons = container.NewGridWithColumns(3, closeBtn, guideBtn, retryBtn)
+	} else {
+		buttons = container.NewGridWithColumns(2, closeBtn, retryBtn)
+	}
+
 	minW := canvas.NewRectangle(color.Transparent)
 	minW.SetMinSize(fyne.NewSize(500, 0))
 
@@ -234,7 +256,7 @@ func ShowVPNRetryDialog(message string, win fyne.Window, onRetry func()) {
 		widget.NewSeparator(),
 		messageLabel,
 		widget.NewSeparator(),
-		container.NewGridWithColumns(2, closeBtn, retryBtn),
+		buttons,
 	)
 
 	card := container.NewStack(bg, container.NewPadded(inner))

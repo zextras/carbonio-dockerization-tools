@@ -57,7 +57,7 @@ func runPreflightChecks(w fyne.Window, logPath string) {
 		fyne.Do(func() { updateStep("Checking Docker Compose...") })
 		if err := preflight.CheckDockerComposeVersion(); err != nil {
 			fyne.Do(func() {
-				gui.ShowFatalErrorDialog(fmt.Sprintf("Docker Compose check failed: %v\n\nPlease upgrade to version %s or higher.\nSee: https://docs.docker.com/compose/install/", err, preflight.MinDockerComposeVersion), w)
+				gui.ShowFatalErrorDialog(fmt.Sprintf("Docker Compose check failed: %v\n\nPlease upgrade to version %s or higher.\nSee: https://docs.docker.com/compose/install/", err, preflight.MinDockerComposeVersion), w, func() { gui.ShowGuideDialog(w) })
 			})
 			return
 		}
@@ -70,6 +70,7 @@ func runPreflightChecks(w fyne.Window, logPath string) {
 					fmt.Sprintf("Registry unavailable (%s)\n\nPlease check your VPN connection and try again.", preflight.RegistryHost),
 					w,
 					func() { runPreflightChecks(w, logPath) },
+					func() { gui.ShowGuideDialog(w) },
 				)
 			})
 			return
@@ -88,13 +89,13 @@ func continueStartup(w fyne.Window, logPath string, updateStep func(string)) {
 		extractor, err := embedded.NewExtractor()
 		if err != nil {
 			fyne.Do(func() {
-				gui.ShowFatalErrorDialog(fmt.Sprintf("Failed to initialize: %v", err), w)
+				gui.ShowFatalErrorDialog(fmt.Sprintf("Failed to initialize: %v", err), w, nil)
 			})
 			return
 		}
 		if err := extractor.EnsureExtracted(); err != nil {
 			fyne.Do(func() {
-				gui.ShowFatalErrorDialog(fmt.Sprintf("Failed to extract files: %v", err), w)
+				gui.ShowFatalErrorDialog(fmt.Sprintf("Failed to extract files: %v", err), w, nil)
 			})
 			return
 		}
