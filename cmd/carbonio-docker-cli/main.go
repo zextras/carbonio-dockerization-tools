@@ -20,7 +20,7 @@ var (
 
 func main() {
 	var configFile string
-	var cleanDatabase bool
+	var clean bool
 
 	for i, arg := range os.Args[1:] {
 		switch arg {
@@ -28,8 +28,8 @@ func main() {
 			if i+1 < len(os.Args[1:]) {
 				configFile = os.Args[i+2]
 			}
-		case "--with-clean-database":
-			cleanDatabase = true
+		case "--clean":
+			clean = true
 		}
 	}
 
@@ -37,7 +37,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "Error: --config-file is required")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Usage:")
-		fmt.Fprintln(os.Stderr, "  carbonio-dockerization-cli --config-file <file> [--with-clean-database]")
+		fmt.Fprintln(os.Stderr, "  carbonio-dockerization-cli --config-file <file> [--clean]")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "For interactive use, run 'Carbonio dockerization GUI' instead.")
 		os.Exit(1)
@@ -117,13 +117,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Clean database volumes if requested
-	if cleanDatabase {
-		if err := executor.CleanDatabaseVolumes(); err != nil {
-			log.Printf("Warning: database cleanup failed: %v", err)
+	// Force clean if edition changed, otherwise clean only if requested
+	editionChanged := executor.HasEditionChanged()
+	if editionChanged {
+		fmt.Fprintln(os.Stderr, "Edition changed since last run, cleaning all persistence...")
+	}
+	if clean || editionChanged {
+		if err := executor.CleanAllVolumes(); err != nil {
+			log.Printf("Warning: volume cleanup failed: %v", err)
 		}
 		fmt.Println()
 	}
+	executor.SaveLastEdition()
 
 	// Build and execute docker compose
 	builder := docker.NewCommandBuilder(workDir, edition, parsedConfig)

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"image/color"
 	"log"
+	"net/url"
 	"os/exec"
 	"regexp"
 	"sort"
@@ -114,10 +115,34 @@ func (a *App) ShowMonitorScreen(envVars string, cmdParts []string, visibleServic
 		accountsBox.Add(widget.NewSeparator())
 	}
 
-	// Global status indicator
-	globalStatusLabel := canvas.NewText("Waiting...", colorUnknown)
-	globalStatusLabel.TextSize = 13
-	globalStatusLabel.TextStyle = fyne.TextStyle{Bold: true}
+	// Global status indicator (single RichText widget for perfect alignment)
+	readyURL, _ := url.Parse("https://docker.carbonio.localhost")
+	globalStatusLabel := widget.NewRichText(&widget.TextSegment{
+		Text:  "Waiting...",
+		Style: widget.RichTextStyle{SizeName: theme.SizeNameCaptionText, ColorName: theme.ColorNamePlaceHolder, TextStyle: fyne.TextStyle{Bold: true}},
+	})
+	setGlobalStatus := func(text string, colorName fyne.ThemeColorName, showLink bool) {
+		if showLink {
+			globalStatusLabel.Segments = []widget.RichTextSegment{
+				&widget.TextSegment{
+					Text:  text,
+					Style: widget.RichTextStyle{SizeName: theme.SizeNameCaptionText, ColorName: colorName, TextStyle: fyne.TextStyle{Bold: true}},
+				},
+				&widget.HyperlinkSegment{
+					Text: "https://docker.carbonio.localhost",
+					URL:  readyURL,
+				},
+			}
+		} else {
+			globalStatusLabel.Segments = []widget.RichTextSegment{
+				&widget.TextSegment{
+					Text:  text,
+					Style: widget.RichTextStyle{SizeName: theme.SizeNameCaptionText, ColorName: colorName, TextStyle: fyne.TextStyle{Bold: true}},
+				},
+			}
+		}
+		globalStatusLabel.Refresh()
+	}
 
 	// Build per-service expandable entries
 	monitored := make(map[string]*monitoredService)
@@ -223,7 +248,7 @@ func (a *App) ShowMonitorScreen(envVars string, cmdParts []string, visibleServic
 	exportBtn := widget.NewButton("Export Config", func() {
 		fd := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
 			if err != nil {
-				dialog.ShowError(err, a.window)
+				showErrorDialog(err.Error(), a.window)
 				return
 			}
 			if writer == nil {
@@ -232,7 +257,7 @@ func (a *App) ShowMonitorScreen(envVars string, cmdParts []string, visibleServic
 			writer.Close()
 			path := writer.URI().Path()
 			if saveErr := a.saveConfig(path); saveErr != nil {
-				dialog.ShowError(saveErr, a.window)
+				showErrorDialog(saveErr.Error(), a.window)
 				return
 			}
 			showSuccessDialog("Config Exported", fmt.Sprintf("Saved to:\n%s", path), a.window)
@@ -261,9 +286,7 @@ func (a *App) ShowMonitorScreen(envVars string, cmdParts []string, visibleServic
 			ms.dot.FillColor = colorStopped
 			ms.dot.Refresh()
 		}
-		globalStatusLabel.Text = "Stopping..."
-		globalStatusLabel.Color = colorStarting
-		globalStatusLabel.Refresh()
+		setGlobalStatus("Stopping...", theme.ColorNameWarning, false)
 
 		prog := showProgressModal("Stopping", "Stopping and cleaning up containers...", a.window)
 		go func() {
@@ -273,9 +296,7 @@ func (a *App) ShowMonitorScreen(envVars string, cmdParts []string, visibleServic
 			fyne.Do(func() {
 				cleanDone = true
 				prog.Hide()
-				globalStatusLabel.Text = "Stopped"
-				globalStatusLabel.Color = colorStopped
-				globalStatusLabel.Refresh()
+				setGlobalStatus("Stopped", theme.ColorNameForeground, false)
 				showCleanupCompleteDialog(a.window, func() {
 					a.window.Close()
 				})
@@ -286,7 +307,7 @@ func (a *App) ShowMonitorScreen(envVars string, cmdParts []string, visibleServic
 	stopBtn := widget.NewButton("Stop & Cleanup", func() {
 		doCleanup()
 	})
-	stopBtn.Importance = widget.DangerImportance
+	stopBtn.Importance = widget.HighImportance
 
 	// Header
 	logo := newLogo(32)
@@ -356,22 +377,16 @@ func (a *App) ShowMonitorScreen(envVars string, cmdParts []string, visibleServic
 		}
 
 		if hasError {
-			globalStatusLabel.Text = "Failing"
-			globalStatusLabel.Color = colorError
+			setGlobalStatus("Failing", theme.ColorNameError, false)
 		} else if allRunning {
-			globalStatusLabel.Text = "Ready"
-			globalStatusLabel.Color = colorRunning
+			setGlobalStatus("Ready: ", theme.ColorNameSuccess, true)
 		} else if hasPulling {
-			globalStatusLabel.Text = "Pulling..."
-			globalStatusLabel.Color = colorStarting
+			setGlobalStatus("Pulling...", theme.ColorNameWarning, false)
 		} else if hasStarting {
-			globalStatusLabel.Text = "Starting..."
-			globalStatusLabel.Color = colorStarting
+			setGlobalStatus("Starting...", theme.ColorNameWarning, false)
 		} else {
-			globalStatusLabel.Text = "Waiting..."
-			globalStatusLabel.Color = colorUnknown
+			setGlobalStatus("Waiting...", theme.ColorNamePlaceHolder, false)
 		}
-		globalStatusLabel.Refresh()
 	}
 
 	refreshBadges := func() {

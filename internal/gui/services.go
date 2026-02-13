@@ -93,10 +93,10 @@ func (a *App) ShowServicesScreen(resolver *graph.DependencyResolver) {
 
 		envVars, cmdParts, err := a.buildDockerCommand()
 		if err != nil {
-			dialog.ShowError(err, a.window)
+			showErrorDialog(err.Error(), a.window)
 			return
 		}
-		a.promptCleanDatabaseThenMonitor(envVars, cmdParts)
+		a.promptCleanPersistenceThenMonitor(envVars, cmdParts)
 	})
 	startBtn.Importance = widget.HighImportance
 
@@ -107,7 +107,7 @@ func (a *App) ShowServicesScreen(resolver *graph.DependencyResolver) {
 
 		fd := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
 			if err != nil {
-				dialog.ShowError(err, a.window)
+				showErrorDialog(err.Error(), a.window)
 				return
 			}
 			if writer == nil {
@@ -116,7 +116,7 @@ func (a *App) ShowServicesScreen(resolver *graph.DependencyResolver) {
 			writer.Close()
 			path := writer.URI().Path()
 			if saveErr := a.saveConfig(path); saveErr != nil {
-				dialog.ShowError(saveErr, a.window)
+				showErrorDialog(saveErr.Error(), a.window)
 				return
 			}
 			showSuccessDialog("Config Exported", fmt.Sprintf("Saved to:\n%s", path), a.window)
@@ -163,8 +163,8 @@ func (a *App) ShowServicesScreen(resolver *graph.DependencyResolver) {
 	topSection := container.NewPadded(container.NewPadded(container.NewVBox(titleRow, editionSubtitle, description, widget.NewSeparator())))
 	bottomSection := container.NewPadded(container.NewPadded(container.NewHBox(
 		wideButton(backBtn, 120),
-		layout.NewSpacer(),
 		wideButton(exportBtn, 150),
+		layout.NewSpacer(),
 		wideButton(startBtn, 120),
 	)))
 
@@ -462,8 +462,8 @@ func showCustomDialog(item *serviceItem, tagSelect *widget.Select, nameLabel *wi
 					}
 				}
 				if !tagFound {
-					dialog.ShowError(
-						fmt.Errorf("Tag \"%s\" not found in registry for %s.\n\nAvailable tags can be seen in the dropdown.", parsedTag, item.name),
+					showErrorDialog(
+						fmt.Sprintf("Tag \"%s\" not found in registry for %s.\n\nAvailable tags can be seen in the dropdown.", parsedTag, item.name),
 						win,
 					)
 					return

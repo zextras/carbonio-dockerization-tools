@@ -16,16 +16,16 @@ import (
 )
 
 type App struct {
-	window          fyne.Window
-	workDir         string
-	logPath         string
-	parsedConfig    *parser.ParsedConfig
-	userConfig      *config.UserConfig
-	edition         parser.Edition
-	executor        *docker.Executor
-	pendingBackend  map[string]*config.ImageConfig
-	pendingFrontend map[string]*config.ImageConfig
-	cleanDatabase   bool
+	window           fyne.Window
+	workDir          string
+	logPath          string
+	parsedConfig     *parser.ParsedConfig
+	userConfig       *config.UserConfig
+	edition          parser.Edition
+	executor         *docker.Executor
+	pendingBackend   map[string]*config.ImageConfig
+	pendingFrontend  map[string]*config.ImageConfig
+	cleanPersistence bool
 }
 
 func NewApp(workDir string, logPath string, window fyne.Window) *App {
@@ -48,7 +48,7 @@ func (a *App) setupMainMenu() {
 func (a *App) exportLogs() {
 	fd := dialog.NewFolderOpen(func(uri fyne.ListableURI, err error) {
 		if err != nil {
-			dialog.ShowError(err, a.window)
+			showErrorDialog(err.Error(), a.window)
 			return
 		}
 		if uri == nil {
@@ -61,20 +61,20 @@ func (a *App) exportLogs() {
 
 		src, err := os.Open(a.logPath)
 		if err != nil {
-			dialog.ShowError(fmt.Errorf("failed to open log file: %w", err), a.window)
+			showErrorDialog(fmt.Sprintf("failed to open log file: %v", err), a.window)
 			return
 		}
 		defer src.Close()
 
 		dst, err := os.Create(destPath)
 		if err != nil {
-			dialog.ShowError(fmt.Errorf("failed to create export file: %w", err), a.window)
+			showErrorDialog(fmt.Sprintf("failed to create export file: %v", err), a.window)
 			return
 		}
 		defer dst.Close()
 
 		if _, err := io.Copy(dst, src); err != nil {
-			dialog.ShowError(fmt.Errorf("failed to copy logs: %w", err), a.window)
+			showErrorDialog(fmt.Sprintf("failed to copy logs: %v", err), a.window)
 			return
 		}
 
@@ -86,7 +86,7 @@ func (a *App) exportLogs() {
 func (a *App) loadConfigFromFile(filePath string) error {
 	editionStr, err := config.LoadConfigEdition(filePath)
 	if err != nil {
-		return fmt.Errorf("failed to read config edition: %w", err)
+		return fmt.Errorf("failed to read config edition: %v", err)
 	}
 
 	edition := parser.EditionCE
@@ -96,7 +96,7 @@ func (a *App) loadConfigFromFile(filePath string) error {
 
 	parsedConfig, err := parser.ParseAll(a.workDir, edition)
 	if err != nil {
-		return fmt.Errorf("failed to parse docker files: %w", err)
+		return fmt.Errorf("failed to parse docker files: %v", err)
 	}
 
 	userConfig, err := config.LoadConfig(filePath, parsedConfig)

@@ -9,7 +9,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
@@ -31,7 +30,7 @@ func (a *App) ShowEditionScreen() {
 
 		parsedConfig, err := parser.ParseAll(a.workDir, edition)
 		if err != nil {
-			dialog.ShowError(err, a.window)
+			showErrorDialog(err.Error(), a.window)
 			return
 		}
 		a.parsedConfig = parsedConfig
@@ -87,20 +86,27 @@ func (a *App) buildVisibleServicesList() []string {
 	return visible
 }
 
-func (a *App) promptCleanDatabaseThenMonitor(envVars string, cmdParts []string) {
+func (a *App) promptCleanPersistenceThenMonitor(envVars string, cmdParts []string) {
+	// If edition changed since last run, force clean without asking
+	if a.executor.HasEditionChanged() {
+		log.Println("Edition changed, forcing persistence cleanup")
+		a.cleanPersistence = true
+		a.startMonitor(envVars, cmdParts)
+		return
+	}
+
 	titleLabel := widget.NewRichText(&widget.TextSegment{
-		Text: "Clean Database",
+		Text: "Clean All Persistence",
 		Style: widget.RichTextStyle{
 			SizeName:  theme.SizeNameSubHeadingText,
 			TextStyle: fyne.TextStyle{Bold: true},
 		},
 	})
 	messageLabel := widget.NewLabel(
-		"Do you want to start with a clean database?\n\n" +
-			"This will remove the PostgreSQL volume, deleting all data\n" +
-			"(files, tasks, docs, etc.). Recommended for fresh testing.")
+		"Do you want to start with a fresh installation?\n\n" +
+			"All persistent data from previous runs will be removed.")
 
-	yesBtn := widget.NewButton("Yes, clean", nil)
+	yesBtn := widget.NewButton("Yes, clean all", nil)
 	noBtn := widget.NewButton("No, keep data", nil)
 	noBtn.Importance = widget.HighImportance
 
@@ -123,12 +129,12 @@ func (a *App) promptCleanDatabaseThenMonitor(envVars string, cmdParts []string) 
 
 	yesBtn.OnTapped = func() {
 		pop.Hide()
-		a.cleanDatabase = true
+		a.cleanPersistence = true
 		a.startMonitor(envVars, cmdParts)
 	}
 	noBtn.OnTapped = func() {
 		pop.Hide()
-		a.cleanDatabase = false
+		a.cleanPersistence = false
 		a.startMonitor(envVars, cmdParts)
 	}
 
@@ -138,27 +144,28 @@ func (a *App) promptCleanDatabaseThenMonitor(envVars string, cmdParts []string) 
 func (a *App) handleConfigImport(filePath string) {
 	err := a.loadConfigFromFile(filePath)
 	if err != nil {
-		dialog.ShowError(err, a.window)
+		showErrorDialog(err.Error(), a.window)
 		return
 	}
 
 	envVars, cmdParts, err := a.buildDockerCommand()
 	if err != nil {
-		dialog.ShowError(err, a.window)
+		showErrorDialog(err.Error(), a.window)
 		return
 	}
 
-	a.promptCleanDatabaseThenMonitor(envVars, cmdParts)
+	a.promptCleanPersistenceThenMonitor(envVars, cmdParts)
 }
 
 func (a *App) startMonitor(envVars string, cmdParts []string) {
 	visibleServices := a.buildVisibleServicesList()
-	if a.cleanDatabase {
-		prog := showProgressModal("Cleaning Database",
-			"Removing database volumes for a fresh start...", a.window)
+	a.executor.SaveLastEdition()
+	if a.cleanPersistence {
+		prog := showProgressModal("Cleaning Persistence",
+			"Removing all persistent volumes for a fresh start...", a.window)
 		go func() {
-			if err := a.executor.CleanDatabaseVolumes(); err != nil {
-				log.Printf("Clean database error: %v", err)
+			if err := a.executor.CleanAllVolumes(); err != nil {
+				log.Printf("Clean volumes error: %v", err)
 			}
 			fyne.Do(func() {
 				prog.Hide()

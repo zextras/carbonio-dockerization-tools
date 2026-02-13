@@ -39,29 +39,19 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # ── CLI: cross-compile for all platforms (no CGO) ──
+  # ── Linux: .deb + .rpm (CLI + GUI) — native build per arch ──
 
-  build-cli:
+  build-linux:
     needs: semantic-release
     if: needs.semantic-release.outputs.new-release-published == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
         include:
-          - goos: linux
-            goarch: amd64
-          - goos: linux
-            goarch: arm64
-          - goos: darwin
-            goarch: amd64
-          - goos: darwin
-            goarch: arm64
-          - goos: windows
-            goarch: amd64
-          - goos: windows
-            goarch: arm64
-          - goos: freebsd
-            goarch: amd64
+          - goarch: amd64
+            runner: ubuntu-latest
+          - goarch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -73,69 +63,15 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build CLI
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: '0'
-        run: |
-          VERSION=${{ needs.semantic-release.outputs.new-release-version }}
-          COMMIT=${GITHUB_SHA::7}
-          DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
-          BINARY_NAME="carbonio-dockerization-cli-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}"
-          if [ "${{ matrix.goos }}" = "windows" ]; then
-            BINARY_NAME="${BINARY_NAME}.exe"
-          fi
-
-          go build \
-            -ldflags="-X 'main.version=${VERSION}' -X 'main.commit=${COMMIT}' -X 'main.date=${DATE}'" \
-            -o "${BINARY_NAME}" \
-            ./cmd/carbonio-docker-cli
-
-          sha256sum "${BINARY_NAME}" > "${BINARY_NAME}.sha256"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: cli-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: carbonio-dockerization-cli-*
-          retention-days: 1
-
-  # ── GUI Linux: .deb + .rpm packages ──
-
-  build-gui-linux:
-    needs: semantic-release
-    if: needs.semantic-release.outputs.new-release-published == 'true'
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        goarch: [amd64, arm64]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: v${{ needs.semantic-release.outputs.new-release-version }}
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-
-      - name: Install Linux GUI dependencies
+      - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev pkg-config
 
-      - name: Install cross-compile toolchain (arm64)
-        if: matrix.goarch == 'arm64'
-        run: |
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-
       - name: Install nfpm
         run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
 
-      - name: Build GUI + packages
+      - name: Build CLI + GUI and package
         env:
           VERSION: ${{ needs.semantic-release.outputs.new-release-version }}
           GOARCH: ${{ matrix.goarch }}
@@ -146,41 +82,39 @@ jobs:
 
           mkdir -p artifacts
 
-          if [ "${{ matrix.goarch }}" = "arm64" ]; then
-            export CC=aarch64-linux-gnu-gcc
-            export CGO_ENABLED=1
-          fi
-
-          echo "Building GUI binary..."
-          GOOS=linux go build \
-            -ldflags="${LDFLAGS}" \
-            -o artifacts/carbonio-dockerization-gui \
-            ./cmd/carbonio-docker-gui
-
-          echo "Building CLI binary..."
-          CGO_ENABLED=0 GOOS=linux go build \
+          echo "Building CLI..."
+          CGO_ENABLED=0 go build \
             -ldflags="${LDFLAGS}" \
             -o artifacts/carbonio-dockerization-cli \
             ./cmd/carbonio-docker-cli
 
-          echo "Creating .deb package..."
+          echo "Building GUI..."
+          go build \
+            -ldflags="${LDFLAGS}" \
+            -o artifacts/carbonio-dockerization-gui \
+            ./cmd/carbonio-docker-gui
+
+          echo "Creating .deb..."
           nfpm package --config nfpm.yaml --packager deb --target artifacts/
 
-          echo "Creating .rpm package..."
+          echo "Creating .rpm..."
           nfpm package --config nfpm.yaml --packager rpm --target artifacts/
 
           rm -f artifacts/carbonio-dockerization-cli artifacts/carbonio-dockerization-gui
 
+          cd artifacts
+          for f in *.deb *.rpm; do sha256sum "$f" > "${f}.sha256"; done
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: gui-linux-${{ matrix.goarch }}
+          name: linux-${{ matrix.goarch }}
           path: artifacts/*
           retention-days: 1
 
-  # ── GUI macOS: .app bundle ──
+  # ── macOS: .pkg installer (CLI + GUI .app bundle) ──
 
-  build-gui-macos:
+  build-macos:
     needs: semantic-release
     if: needs.semantic-release.outputs.new-release-published == 'true'
     runs-on: ${{ matrix.runner }}
@@ -205,15 +139,23 @@ jobs:
       - name: Install fyne CLI
         run: go install fyne.io/fyne/v2/cmd/fyne@latest
 
-      - name: Build macOS .app bundle
+      - name: Build CLI + GUI and create .pkg installer
         env:
           VERSION: ${{ needs.semantic-release.outputs.new-release-version }}
           GOARCH: ${{ matrix.goarch }}
         run: |
           COMMIT=${GITHUB_SHA::7}
           DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          LDFLAGS="-X 'main.version=${VERSION}' -X 'main.commit=${COMMIT}' -X 'main.date=${DATE}'"
 
           mkdir -p artifacts
+
+          echo "Building CLI..."
+          CGO_ENABLED=0 go build -ldflags="${LDFLAGS}" -o carbonio-dockerization-cli ./cmd/carbonio-docker-cli
+
+          echo "Generating version info for GUI..."
+          printf 'package main\n\nfunc init() {\n\tversion = "%s"\n\tcommit = "%s"\n\tdate = "%s"\n}\n' \
+            "${VERSION}" "${COMMIT}" "${DATE}" > cmd/carbonio-docker-gui/version_gen.go
 
           echo "Creating .app bundle..."
           fyne package \
@@ -224,24 +166,39 @@ jobs:
             -appVersion "${VERSION}" \
             -src ./cmd/carbonio-docker-gui
 
-          APP_NAME="carbonio-dockerization-gui-${VERSION}-darwin-${{ matrix.goarch }}"
+          rm -f cmd/carbonio-docker-gui/version_gen.go
 
-          # Create .tar.gz of the .app bundle
-          mv *.app "Carbonio Dockerization GUI.app" 2>/dev/null || true
-          tar -czf "artifacts/${APP_NAME}.app.tar.gz" "Carbonio Dockerization GUI.app"
-          sha256sum "artifacts/${APP_NAME}.app.tar.gz" > "artifacts/${APP_NAME}.app.tar.gz.sha256" || \
-            shasum -a 256 "artifacts/${APP_NAME}.app.tar.gz" > "artifacts/${APP_NAME}.app.tar.gz.sha256"
+          APP_NAME="Carbonio Dockerization GUI.app"
+          if [ ! -d "${APP_NAME}" ]; then
+            mv *.app "${APP_NAME}" 2>/dev/null
+          fi
+
+          echo "Creating .pkg installer..."
+          mkdir -p pkg-root/Applications pkg-root/usr/local/bin
+          cp -R "${APP_NAME}" pkg-root/Applications/
+          cp carbonio-dockerization-cli pkg-root/usr/local/bin/
+
+          PKG_NAME="carbonio-dockerization-${VERSION}-darwin-${{ matrix.goarch }}.pkg"
+          pkgbuild \
+            --root pkg-root \
+            --identifier com.zextras.carbonio-dockerization \
+            --version "${VERSION}" \
+            --install-location / \
+            "artifacts/${PKG_NAME}"
+
+          cd artifacts
+          shasum -a 256 "${PKG_NAME}" > "${PKG_NAME}.sha256"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: gui-macos-${{ matrix.goarch }}
+          name: macos-${{ matrix.goarch }}
           path: artifacts/*
           retention-days: 1
 
-  # ── GUI Windows: .exe ──
+  # ── Windows amd64: Inno Setup installer (CLI + GUI .exe) ──
 
-  build-gui-windows:
+  build-windows:
     needs: semantic-release
     if: needs.semantic-release.outputs.new-release-published == 'true'
     runs-on: windows-latest
@@ -259,18 +216,25 @@ jobs:
       - name: Install fyne CLI
         run: go install fyne.io/fyne/v2/cmd/fyne@latest
 
-      - name: Build Windows GUI
+      - name: Build CLI + GUI
         env:
           VERSION: ${{ needs.semantic-release.outputs.new-release-version }}
         shell: bash
         run: |
           COMMIT=${GITHUB_SHA::7}
           DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          LDFLAGS="-X 'main.version=${VERSION}' -X 'main.commit=${COMMIT}' -X 'main.date=${DATE}' -H windowsgui"
+          LDFLAGS="-X 'main.version=${VERSION}' -X 'main.commit=${COMMIT}' -X 'main.date=${DATE}'"
 
-          mkdir -p artifacts
+          mkdir -p build-output
 
-          echo "Creating Windows GUI .exe..."
+          echo "Building CLI..."
+          CGO_ENABLED=0 go build -ldflags="${LDFLAGS}" -o build-output/carbonio-dockerization-cli.exe ./cmd/carbonio-docker-cli
+
+          echo "Generating version info for GUI..."
+          printf 'package main\n\nfunc init() {\n\tversion = "%s"\n\tcommit = "%s"\n\tdate = "%s"\n}\n' \
+            "${VERSION}" "${COMMIT}" "${DATE}" > cmd/carbonio-docker-gui/version_gen.go
+
+          echo "Creating GUI .exe..."
           fyne package \
             -os windows \
             -icon carbonio-docker-logo.png \
@@ -279,21 +243,37 @@ jobs:
             -appVersion "${VERSION}" \
             -src ./cmd/carbonio-docker-gui
 
-          EXE_NAME="carbonio-dockerization-gui-${VERSION}-windows-amd64.exe"
-          mv *.exe "artifacts/${EXE_NAME}" 2>/dev/null || true
-          sha256sum "artifacts/${EXE_NAME}" > "artifacts/${EXE_NAME}.sha256"
+          rm -f cmd/carbonio-docker-gui/version_gen.go
+
+          # fyne package produces the exe in current dir
+          mv "Carbonio Dockerization GUI.exe" build-output/carbonio-dockerization-gui.exe 2>/dev/null || \
+            mv *.exe build-output/carbonio-dockerization-gui.exe 2>/dev/null || true
+
+      - name: Create installer with Inno Setup
+        env:
+          VERSION: ${{ needs.semantic-release.outputs.new-release-version }}
+        shell: cmd
+        run: |
+          mkdir artifacts
+          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=%VERSION% /DFilesDir=%CD%\build-output /DOutputDir=%CD%\artifacts packaging\windows-installer.iss
+
+      - name: Generate checksum
+        shell: bash
+        run: |
+          cd artifacts
+          for f in *.exe; do sha256sum "$f" > "${f}.sha256"; done
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: gui-windows-amd64
+          name: windows-amd64
           path: artifacts/*
           retention-days: 1
 
   # ── Upload all artifacts to GitHub Release ──
 
   upload-release-assets:
-    needs: [semantic-release, build-cli, build-gui-linux, build-gui-macos, build-gui-windows]
+    needs: [semantic-release, build-linux, build-macos, build-windows]
     if: needs.semantic-release.outputs.new-release-published == 'true'
     runs-on: ubuntu-latest
     steps:

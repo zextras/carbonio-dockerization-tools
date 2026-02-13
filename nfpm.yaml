@@ -25,8 +25,19 @@ contents:
   - src: packaging/carbonio-dockerization-gui.desktop
     dst: /usr/share/applications/carbonio-dockerization-gui.desktop
 
-  # Icon
-  - src: carbonio-docker-logo.png
+  # Icons (hicolor theme for proper scaling)
+  - src: packaging/icons/48x48.png
+    dst: /usr/share/icons/hicolor/48x48/apps/carbonio-dockerization-gui.png
+  - src: packaging/icons/64x64.png
+    dst: /usr/share/icons/hicolor/64x64/apps/carbonio-dockerization-gui.png
+  - src: packaging/icons/128x128.png
+    dst: /usr/share/icons/hicolor/128x128/apps/carbonio-dockerization-gui.png
+  - src: packaging/icons/256x256.png
+    dst: /usr/share/icons/hicolor/256x256/apps/carbonio-dockerization-gui.png
+  - src: packaging/icons/512x512.png
+    dst: /usr/share/icons/hicolor/512x512/apps/carbonio-dockerization-gui.png
+  # Pixmaps fallback
+  - src: packaging/icons/256x256.png
     dst: /usr/share/pixmaps/carbonio-dockerization-gui.png
 
 deb:

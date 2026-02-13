@@ -3,6 +3,6 @@ Type=Application
 Name=Carbonio Dockerization GUI
 Comment=GUI for deploying Carbonio via Docker
 Exec=/usr/local/bin/carbonio-dockerization-gui
-Icon=/usr/share/pixmaps/carbonio-dockerization-gui.png
+Icon=carbonio-dockerization-gui
 Terminal=false
 Categories=Development;System;

@@ -54,3 +54,6 @@ vendor/
 *.swo
 *~
 .DS_Store
+
+# Generated version file (CI only)
+version_gen.go

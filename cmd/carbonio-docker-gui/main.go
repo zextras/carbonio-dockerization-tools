@@ -11,7 +11,6 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
-	"fyne.io/fyne/v2/dialog"
 )
 
 var (
@@ -44,40 +43,70 @@ func main() {
 	w.SetIcon(gui.LogoResource())
 	w.Resize(fyne.NewSize(900, 700))
 
-	// Preflight checks
-	if err := preflight.CheckDockerComposeVersion(); err != nil {
-		dialog.ShowError(fmt.Errorf("Docker Compose check failed: %w\n\nPlease upgrade to version %s or higher.\nSee: https://docs.docker.com/compose/install/", err, preflight.MinDockerComposeVersion), w)
-		w.ShowAndRun()
-		return
-	}
+	// Show loading screen immediately and run preflight checks
+	runPreflightChecks(w, logPath)
 
-	if err := preflight.CheckRegistryConnectivity(); err != nil {
-		dialog.ShowError(fmt.Errorf("Registry unavailable (%s)\n\nPlease check your VPN connection and try again.", preflight.RegistryHost), w)
-		w.ShowAndRun()
-		return
-	}
-
-	continueStartup(w, a, logPath)
 	w.ShowAndRun()
 }
 
-func continueStartup(w fyne.Window, a fyne.App, logPath string) {
-	extractor, err := embedded.NewExtractor()
-	if err != nil {
-		dialog.ShowError(fmt.Errorf("Failed to initialize: %v", err), w)
-		return
-	}
-	if err := extractor.EnsureExtracted(); err != nil {
-		dialog.ShowError(fmt.Errorf("Failed to extract files: %v", err), w)
-		return
-	}
+func runPreflightChecks(w fyne.Window, logPath string) {
+	updateStep := gui.ShowLoadingScreen(w)
 
-	workDir := extractor.GetWorkDir()
-	guiApp := gui.NewApp(workDir, logPath, w)
+	go func() {
+		// Check Docker Compose
+		fyne.Do(func() { updateStep("Checking Docker Compose...") })
+		if err := preflight.CheckDockerComposeVersion(); err != nil {
+			fyne.Do(func() {
+				gui.ShowFatalErrorDialog(fmt.Sprintf("Docker Compose check failed: %v\n\nPlease upgrade to version %s or higher.\nSee: https://docs.docker.com/compose/install/", err, preflight.MinDockerComposeVersion), w)
+			})
+			return
+		}
 
-	// Initial cleanup
-	log.Println("Running initial cleanup...")
-	guiApp.RunInitialCleanup()
+		// Check registry connectivity
+		fyne.Do(func() { updateStep("Checking registry connectivity...") })
+		if err := preflight.CheckRegistryConnectivity(); err != nil {
+			fyne.Do(func() {
+				gui.ShowVPNRetryDialog(
+					fmt.Sprintf("Registry unavailable (%s)\n\nPlease check your VPN connection and try again.", preflight.RegistryHost),
+					w,
+					func() { runPreflightChecks(w, logPath) },
+				)
+			})
+			return
+		}
 
-	guiApp.ShowStartupScreen()
+		fyne.Do(func() {
+			continueStartup(w, logPath, updateStep)
+		})
+	}()
+}
+
+func continueStartup(w fyne.Window, logPath string, updateStep func(string)) {
+	updateStep("Extracting files...")
+
+	go func() {
+		extractor, err := embedded.NewExtractor()
+		if err != nil {
+			fyne.Do(func() {
+				gui.ShowFatalErrorDialog(fmt.Sprintf("Failed to initialize: %v", err), w)
+			})
+			return
+		}
+		if err := extractor.EnsureExtracted(); err != nil {
+			fyne.Do(func() {
+				gui.ShowFatalErrorDialog(fmt.Sprintf("Failed to extract files: %v", err), w)
+			})
+			return
+		}
+
+		workDir := extractor.GetWorkDir()
+		guiApp := gui.NewApp(workDir, logPath, w)
+
+		fyne.Do(func() { updateStep("Cleaning up previous sessions...") })
+		guiApp.RunInitialCleanup()
+
+		fyne.Do(func() {
+			guiApp.ShowStartupScreen()
+		})
+	}()
 }
