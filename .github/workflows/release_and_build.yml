@@ -173,6 +173,11 @@ jobs:
             mv *.app "${APP_NAME}" 2>/dev/null
           fi
 
+          echo "Ad-hoc signing .app bundle..."
+          codesign --deep --force -s - "${APP_NAME}"
+          echo "Verifying signature..."
+          codesign --verify --verbose "${APP_NAME}"
+
           echo "Creating .pkg installer..."
           mkdir -p pkg-root/Applications pkg-root/usr/local/bin
           cp -R "${APP_NAME}" pkg-root/Applications/
@@ -188,6 +193,22 @@ jobs:
 
           cd artifacts
           shasum -a 256 "${PKG_NAME}" > "${PKG_NAME}.sha256"
+
+      - name: Smoke test (native arch only)
+        if: matrix.goarch == 'arm64'
+        run: |
+          APP_PATH="$(pwd)/Carbonio Dockerization GUI.app/Contents/MacOS/carbonio-dockerization-gui"
+          echo "Launching GUI for smoke test..."
+          "${APP_PATH}" &
+          APP_PID=$!
+          sleep 5
+          if kill -0 "$APP_PID" 2>/dev/null; then
+            echo "Smoke test passed: GUI process is running (PID $APP_PID)"
+            kill "$APP_PID" || true
+          else
+            echo "Smoke test FAILED: GUI process died"
+            exit 1
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
