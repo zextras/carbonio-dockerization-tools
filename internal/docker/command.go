@@ -1,8 +1,8 @@
 package docker
 
 import (
-	"carbonio-docker-cli/internal/config"
-	"carbonio-docker-cli/internal/parser"
+	"carbonio-dockerization-tools/internal/config"
+	"carbonio-dockerization-tools/internal/parser"
 	"fmt"
 	"strings"
 )
@@ -37,6 +37,9 @@ func (b *CommandBuilder) Build() (string, []string, error) {
 	composeFiles = append(composeFiles, "docker-compose.yaml")
 	if b.edition == parser.EditionAdvanced {
 		composeFiles = append(composeFiles, "docker-compose-advanced.yaml")
+	}
+	if NeedsPlatformOverride() {
+		composeFiles = append(composeFiles, "docker-compose.macos.override.yaml")
 	}
 	for serviceName, svc := range b.parsedConfig.BackendServices {
 		if imgConfig, selected := b.backendServices[serviceName]; selected {

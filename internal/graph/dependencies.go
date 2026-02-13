@@ -1,7 +1,7 @@
 package graph
 
 import (
-	"carbonio-docker-cli/internal/parser"
+	"carbonio-dockerization-tools/internal/parser"
 )
 
 type DependencyResolver struct {

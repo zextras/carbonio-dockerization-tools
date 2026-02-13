@@ -1,7 +1,7 @@
 package config
 
 import (
-	"carbonio-docker-cli/internal/parser"
+	"carbonio-dockerization-tools/internal/parser"
 	"fmt"
 	"gopkg.in/yaml.v3"
 	"os"

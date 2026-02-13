@@ -31,16 +31,19 @@ go.work.sum
 .idea/
 .vscode/
 
-/carbonio-docker-cli
-/carbonio-docker-cli.exe
-/carbonio-docker-cli-*
+/carbonio-dockerization-cli
+/carbonio-dockerization-gui
+/carbonio-dockerization-cli
+/carbonio-dockerization-gui
+/artifacts/
 
-carbonio-docker-workdir/
+carbonio-dockerization-workdir/
 
 carbonio-config.yaml
 carbonio-config-*.yaml
 
-carbonio-docker-cli.log
+carbonio-dockerization-cli.log
+carbonio-dockerization-gui.log
 *.log
 
 coverage.html
@@ -51,3 +54,6 @@ vendor/
 *.swo
 *~
 .DS_Store
+
+# Generated version file (CI only)
+version_gen.go

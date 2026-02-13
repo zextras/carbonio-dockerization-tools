@@ -2,12 +2,14 @@ package docker
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"os/signal"
-	"runtime"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -44,6 +46,27 @@ func (e *Executor) CleanupExisting(edition string) error {
 	return e.CleanupAll()
 }
 
+const lastEditionFile = ".last-edition"
+
+// HasEditionChanged returns true if the current edition differs from the last
+// one that was started. Returns false if no previous edition was recorded.
+func (e *Executor) HasEditionChanged() bool {
+	data, err := os.ReadFile(filepath.Join(e.workDir, lastEditionFile))
+	if err != nil {
+		return false // no previous record, nothing to force
+	}
+	prev := strings.TrimSpace(string(data))
+	return prev != "" && prev != e.edition
+}
+
+// SaveLastEdition writes the current edition to disk so the next run can detect changes.
+func (e *Executor) SaveLastEdition() {
+	path := filepath.Join(e.workDir, lastEditionFile)
+	if err := os.WriteFile(path, []byte(e.edition), 0644); err != nil {
+		log.Printf("Warning: failed to save last edition: %v", err)
+	}
+}
+
 func (e *Executor) CleanupAll() error {
 	return e.cleanupAllWithOutput(true)
 }
@@ -52,15 +75,39 @@ func (e *Executor) CleanupAllQuiet() error {
 	return e.cleanupAllWithOutput(false)
 }
 
-func isNonLinuxPlatform() bool {
-	return runtime.GOOS != "linux"
+var (
+	dockerNeedsOverride     bool
+	dockerNeedsOverrideOnce sync.Once
+)
+
+// NeedsPlatformOverride checks the Docker daemon architecture and returns true
+// if it is NOT amd64/x86_64, meaning platform overrides are needed.
+func NeedsPlatformOverride() bool {
+	dockerNeedsOverrideOnce.Do(func() {
+		cmd := exec.Command("docker", "info", "--format", "{{.Architecture}}")
+		out, err := cmd.Output()
+		if err != nil {
+			log.Printf("Could not detect Docker architecture: %v, assuming override needed", err)
+			dockerNeedsOverride = true
+			return
+		}
+		arch := strings.TrimSpace(string(out))
+		log.Printf("Docker daemon architecture: %s", arch)
+		switch arch {
+		case "x86_64", "amd64":
+			dockerNeedsOverride = false
+		default:
+			dockerNeedsOverride = true
+		}
+	})
+	return dockerNeedsOverride
 }
 
 func getDockerEnv() []string {
 	env := os.Environ()
-	if isNonLinuxPlatform() {
+	if NeedsPlatformOverride() {
 		env = append(env, "DOCKER_DEFAULT_PLATFORM=linux/amd64")
-		log.Printf("Non-Linux platform detected (%s), setting DOCKER_DEFAULT_PLATFORM=linux/amd64", runtime.GOOS)
+		log.Printf("Non-amd64 Docker detected, setting DOCKER_DEFAULT_PLATFORM=linux/amd64")
 	}
 	return env
 }
@@ -154,65 +201,29 @@ func (e *Executor) cleanupAllWithOutput(showOutput bool) error {
 	return nil
 }
 
-// CleanDatabaseVolumes removes PostgreSQL and storages volumes for a fresh installation
-func (e *Executor) CleanDatabaseVolumes() error {
-	fmt.Println("🗑️  Removing database and storage volumes for fresh installation...")
+// CleanAllVolumes removes all persistent volumes for a completely fresh start.
+// Uses "docker compose down -v" which lets compose itself resolve volume names
+// from the compose files, so nothing is hardcoded.
+func (e *Executor) CleanAllVolumes() error {
+	log.Println("Removing all persistent volumes for a fresh start...")
 
-	projectName := e.getProjectName()
-
-	// First, stop containers that use these volumes
-	servicesToStop := []string{
-		"carbonio-postgres",
-		"carbonio-storages",
-		"carbonio-files",
-		"carbonio-preview",
-		"carbonio-docs-editor",
-		"carbonio-docs-connector",
-		"carbonio-tasks",
-	}
-
-	fmt.Println("   Stopping containers that use database volumes...")
-	for _, service := range servicesToStop {
-		container := fmt.Sprintf("%s-%s-1", projectName, service)
-		stopCmd := e.createDockerCommand("stop", "-t", "5", container)
-		stopCmd.Run() // Ignore errors - container may not exist
-		rmCmd := e.createDockerCommand("rm", "-f", container)
-		rmCmd.Run() // Ignore errors
-	}
-
-	// Give Docker a moment to release the volumes
-	time.Sleep(2 * time.Second)
-
-	// Volume names are explicitly defined in docker-compose files:
-	// - CE: carbonio-postgres-data, carbonio-storages-data
-	// - Advanced: carbonio-postgres-data-advanced, carbonio-storages-data-advanced
-	// Clean both CE and Advanced volumes to ensure fresh start
-	volumeNames := []string{
-		// CE volumes
-		"carbonio-postgres-data",
-		"carbonio-storages-data",
-		// Advanced volumes
-		"carbonio-postgres-data-advanced",
-		"carbonio-storages-data-advanced",
-	}
-
-	removedCount := 0
-	for _, volName := range volumeNames {
-		rmCmd := e.createDockerCommand("volume", "rm", "-f", volName)
-		if err := rmCmd.Run(); err != nil {
-			log.Printf("Volume %s removal: %v (may not exist)", volName, err)
-		} else {
-			fmt.Printf("   Removed volume: %s\n", volName)
-			removedCount++
+	projectNames := []string{"carbonio", "carbonio-advanced"}
+	for _, projectName := range projectNames {
+		log.Printf("Removing volumes for project %s...", projectName)
+		cmd := e.createDockerCommand(
+			"compose",
+			"--project-name", projectName,
+			"-f", "docker-compose.yaml",
+			"-f", "docker-compose-advanced.yaml",
+			"down", "-v",
+			"--timeout", "5",
+		)
+		if err := cmd.Run(); err != nil {
+			log.Printf("Volume cleanup for %s: %v (may not exist)", projectName, err)
 		}
 	}
 
-	if removedCount > 0 {
-		fmt.Printf("✓ Removed %d volume(s)\n", removedCount)
-	} else {
-		fmt.Println("✓ No volumes to remove")
-	}
-
+	log.Println("Volume cleanup done")
 	return nil
 }
 
@@ -296,6 +307,46 @@ func (e *Executor) ExecuteWithSignalHandler(envVars string, cmdParts []string, o
 	} else {
 		log.Println("Docker compose process exited normally")
 	}
+
+	return nil
+}
+
+func (e *Executor) StreamServiceLogs(ctx context.Context, serviceName string, tail int, outputChan chan string) error {
+	projectName := e.getProjectName()
+	cmd := e.createDockerCommand("compose", "--project-name", projectName, "logs", "-f", "--tail", strconv.Itoa(tail), serviceName)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		close(outputChan)
+		return fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+	cmd.Stderr = cmd.Stdout // merge stderr into stdout
+
+	if err := cmd.Start(); err != nil {
+		close(outputChan)
+		return fmt.Errorf("failed to start log stream: %w", err)
+	}
+
+	// Kill process when context is cancelled
+	go func() {
+		<-ctx.Done()
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+		}
+	}()
+
+	go func() {
+		defer close(outputChan)
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			select {
+			case <-ctx.Done():
+				return
+			case outputChan <- scanner.Text():
+			}
+		}
+		cmd.Wait()
+	}()
 
 	return nil
 }

@@ -1,0 +1,6 @@
+[Details]
+  Icon = "../../carbonio-docker-logo.png"
+  Name = "Carbonio dockerization GUI"
+  ID = "com.zextras.carbonio-dockerization-gui"
+  Version = "1.0.0"
+  Build = 2

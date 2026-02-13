@@ -1,81 +1,181 @@
-# Carbonio Docker CLI
+# Carbonio Dockerization Tools
 
-A multiplatform CLI based on [carbonio-dockerization](https://github.com/zextras/carbonio-dockerization) created to simplify a granular startup
-process without having to handle 5-line long docker commands.
+Multiplatform CLI and GUI tools based on [carbonio-dockerization](https://github.com/zextras/carbonio-dockerization) to simplify granular startup of Carbonio services via Docker Compose.
 
-Download from [here](https://github.com/galvagnimatteo/carbonio-docker-cli/releases).
+## Installation
 
-## What it does
+### Linux (Ubuntu/Debian)
 
-The CLI aims to simplify the startup process of a granular dockerization both for developers and non-devs.
+Download the `.deb` package from the [Releases page](https://github.com/galvagnimatteo/carbonio-dockerization-tools/releases) and install it:
 
-This is achieved by providing two ways of using the CLI:
-1) Defining a custom infrastructure (selecting single services at specific tags/versions)
-2) Importing a pre-made configuration file
+```bash
+sudo dpkg -i carbonio-dockerization-tools_*.deb
+```
 
-Using the custom mode, a dev can specify exactly what services/UI modules to start
-and at what specific tag (the list of these services is obtained by parsing the docker compose files).
+This installs both the CLI and GUI binaries to `/usr/local/bin`, plus a desktop entry to launch the GUI from your application menu.
 
-Of course, he can then export this specific configuration in a file to be used in the other mode.
+### Linux (Fedora/RHEL)
 
-A non-dev can then start the CLI and simply import the previously generated config file without having to worry about anything else.
+Download the `.rpm` package:
 
-## Arguments
+```bash
+sudo rpm -i carbonio-dockerization-tools-*.rpm
+```
 
-| Argument                            | Description                                                              |
-|-------------------------------------|--------------------------------------------------------------------------|
-| `--config-file path/to/config.yaml` | Load a configuration file and skip the interactive setup                 |
-| `--headless`                        | Run without TUI (requires `--config-file`). Useful for CI/CD or scripts  |
-| `--with-clean-database`             | Remove all database volumes before starting (fresh installation)         |
-| `--save-logs`                       | Save debug logs to `carbonio-docker-cli.log` in the current directory    |
+### macOS
+
+Download the `.pkg` installer for your architecture (arm64 for Apple Silicon, amd64 for Intel) from the [Releases page](https://github.com/galvagnimatteo/carbonio-dockerization-tools/releases) and double-click to install.
+
+This installs the GUI app to `/Applications` and the CLI to `/usr/local/bin`.
+
+### Windows
+
+Download the `-setup.exe` installer from the [Releases page](https://github.com/galvagnimatteo/carbonio-dockerization-tools/releases) and run it.
+
+This installs both the GUI and CLI to `Program Files`, adds a Start Menu shortcut for the GUI, and adds the install directory to the system PATH so the CLI is available from any terminal.
+
+### Build from source
+
+Requires Go 1.21+ and platform-specific dependencies:
+
+- **Linux**: `gcc`, `libgl1-mesa-dev`, `xorg-dev`, `pkg-config`
+- **macOS**: Xcode Command Line Tools
+- **Windows**: MinGW or MSYS2
+
+```bash
+# Build and install locally
+./build.sh install
+
+# Build packages for a specific OS
+./build.sh build linux    # .deb + .rpm (requires nfpm)
+./build.sh build macos    # .app bundle (requires fyne CLI)
+./build.sh build windows  # .exe (requires fyne CLI)
+```
+
+## Prerequisites
+
+- **Docker Compose** v2.20+ installed and available in `PATH`
+- **VPN connection** to the Zextras registry (`registry.dev.zextras.com`)
+- **Docker registry credentials** in `~/.docker/config.json` (run `docker login registry.dev.zextras.com` once)
+
+---
+
+## GUI (`carbonio-dockerization-gui`)
+
+The GUI provides a graphical interface to configure and monitor Carbonio services. It consists of four screens:
+
+### 1. Startup Screen
+
+Choose how to start:
+
+- **Custom configuration** — proceed to the edition selection and manually configure services
+- **Import configuration from file** — load a previously exported `.yaml` config and go directly to the monitor
+
+### 2. Edition Screen
+
+Select the Carbonio edition to deploy:
+
+- **CE (Community Edition)** — open-source edition
+- **Advanced** — full-featured commercial edition
+
+The edition determines which services and Docker Compose files are used.
+
+### 3. Configure Services
+
+The main configuration screen. Lists all backend services and composed UI modules parsed from the Docker Compose files.
+
+For each service, you can:
+
+- **Enable/disable** it via the checkbox (required services cannot be disabled)
+- **Select a tag** from the dropdown, populated in real-time from the Docker registry
+- **Set a custom image** via the "Custom" button, to use any Docker image (including locally built ones)
+
+Bottom bar actions:
+
+- **Back** / **Export Config** — go back or save the current selection to a `.yaml` file
+- **Start** — choose whether to clean all persistence, then launch
+
+### 4. Monitor Screen
+
+Displays real-time status of all running services:
+
+- Each service shows a colored status dot (green = Running, orange = Starting/Pulling, red = Error)
+- Click the expand arrow on any service to view its live logs
+- A global status indicator shows the overall state; when all services are ready, a clickable link to `https://docker.carbonio.localhost` appears
+- **Available Accounts** section lists the provisioned test users and their passwords
+- **Export Config** — save the current selection to a `.yaml` file
+- **Stop & Cleanup** — stops all containers and removes resources
+
+Closing the window also triggers a graceful shutdown and cleanup.
+
+---
+
+## CLI (`carbonio-dockerization-cli`)
+
+Headless command-line tool that runs a Carbonio deployment from a config file. Designed for CI/CD pipelines, scripting, and environments without a display.
+
+### Usage
+
+```
+carbonio-dockerization-cli --config-file <file> [--clean]
+```
+
+| Flag | Description |
+|---|---|
+| `--config-file <path>` | **(Required)** Path to a `.yaml` configuration file |
+| `--clean` | Remove all persistent volumes before starting (fresh install) |
+
+Persistence is also cleaned automatically when switching between editions (CE ↔ Advanced).
 
 ### Examples
 
-**Interactive mode (TUI):**
 ```bash
-./carbonio-docker-cli
+# Start from a config file
+carbonio-dockerization-cli --config-file my-config.yaml
+
+# Start with a clean installation
+carbonio-dockerization-cli --config-file my-config.yaml --clean
 ```
 
-**Load a config file with TUI monitoring:**
-```bash
-./carbonio-docker-cli --config-file my-config.yaml
-```
+The config file can be generated by the GUI via the "Export Config" button.
 
-**Headless mode (no TUI, for scripts/CI):**
-```bash
-./carbonio-docker-cli --config-file my-config.yaml --headless
-```
-
-**Fresh installation (clean database):**
-```bash
-./carbonio-docker-cli --config-file my-config.yaml --with-clean-database
-```
-
-**Debug mode:**
-```bash
-./carbonio-docker-cli --save-logs
-```
+The CLI is fully headless — it never requires user input after launch, making it suitable for CI/CD pipelines and scripting. Output is streamed to stdout. Press `Ctrl+C` to stop all containers and clean up.
 
 ---
 
-## Features
+## Configuration File
 
-- **Custom images**: You can specify any Docker image (not just from Zextras registry), including locally built images
-- **Disable frontend modules**: Individual UI modules can be disabled during setup
-- **Export/Import configurations**: Save your setup to a file and share it with others
-- **Clean database option**: Start with a fresh database by removing all persistent data
-- **Graceful shutdown**: Press `q` or `Ctrl+C` to stop all containers and cleanup
+The YAML config file defines the edition and which images/tags to use:
 
----
+```yaml
+edition: ce  # or "advanced"
+
+carbonio:
+  backend:
+    carbonio-mailbox:
+      image: registry.dev.zextras.com/dev/carbonio-mailbox
+      tag: devel
+    carbonio-files:
+      image: registry.dev.zextras.com/dev/carbonio-files
+      tag: latest
+  frontend:
+    carbonio-shell-ui:
+      image: registry.dev.zextras.com/dev/carbonio-shell-ui
+      tag: devel
+```
 
 ## Working Directory
 
-The CLI extracts the embedded dockerization files to a **system cache directory**:
+The tools extract the embedded dockerization files to a system cache directory:
 
-| OS      | Path                                            |
-|---------|-------------------------------------------------|
-| Linux   | `~/.cache/carbonio-docker-cli/workdir`          |
-| macOS   | `~/Library/Caches/carbonio-docker-cli/workdir`  |
-| Windows | `%LocalAppData%\carbonio-docker-cli\workdir`    |
+| OS | Path |
+|---|---|
+| Linux | `~/.cache/carbonio-dockerization-tools/workdir` |
+| macOS | `~/Library/Caches/carbonio-dockerization-tools/workdir` |
+| Windows | `%LocalAppData%\carbonio-dockerization-tools\workdir` |
 
-This directory is automatically recreated on each run to ensure a clean state.
+Logs are saved to:
+
+| OS | Path |
+|---|---|
+| Linux/macOS | `~/.local/state/carbonio-dockerization/gui.log` (or `cli.log`) |

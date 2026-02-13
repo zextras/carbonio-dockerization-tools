@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Carbonio Dockerization GUI
+Comment=GUI for deploying Carbonio via Docker
+Exec=/usr/local/bin/carbonio-dockerization-gui
+Icon=carbonio-dockerization-gui
+Terminal=false
+Categories=Development;System;
