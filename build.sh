@@ -68,12 +68,12 @@ compile_cli() {
     CGO_ENABLED=0 GOOS="$goos" go build \
       -ldflags="$LDFLAGS" \
       -o "$ARTIFACTS_DIR/carbonio-dockerization-cli${suffix}" \
-      ./cmd/carbonio-docker-cli
+      ./cmd/carbonio-dockerization-cli
   else
     go build \
       -ldflags="$LDFLAGS" \
       -o "$ARTIFACTS_DIR/carbonio-dockerization-cli${suffix}" \
-      ./cmd/carbonio-docker-cli
+      ./cmd/carbonio-dockerization-cli
   fi
 }
 
@@ -82,7 +82,7 @@ compile_gui() {
   go build \
     -ldflags="$LDFLAGS" \
     -o "$ARTIFACTS_DIR/carbonio-dockerization-gui" \
-    ./cmd/carbonio-docker-gui
+    ./cmd/carbonio-dockerization-gui
 }
 
 # --- Linux: .deb + .rpm via nfpm ---
@@ -133,7 +133,7 @@ do_build_macos() {
     -icon "$ICON" \
     -appID "$APP_ID" \
     -name "$APP_NAME" \
-    -src ./cmd/carbonio-docker-gui
+    -src ./cmd/carbonio-dockerization-gui
 
   mv "Carbonio Dockerization GUI.app" "$ARTIFACTS_DIR/" 2>/dev/null || \
   mv *.app "$ARTIFACTS_DIR/" 2>/dev/null || true
@@ -160,7 +160,7 @@ do_build_windows() {
     -icon "$ICON" \
     -appID "$APP_ID" \
     -name "$APP_NAME" \
-    -src ./cmd/carbonio-docker-gui
+    -src ./cmd/carbonio-dockerization-gui
 
   mv *.exe "$ARTIFACTS_DIR/" 2>/dev/null || true
 

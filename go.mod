@@ -1,4 +1,4 @@
-module carbonio-docker-cli
+module carbonio-dockerization-tools
 
 go 1.21
 

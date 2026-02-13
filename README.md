@@ -6,7 +6,7 @@ Multiplatform CLI and GUI tools based on [carbonio-dockerization](https://github
 
 ### Linux (Ubuntu/Debian)
 
-Download the `.deb` package from the [Releases page](https://github.com/galvagnimatteo/carbonio-docker-cli/releases) and install it:
+Download the `.deb` package from the [Releases page](https://github.com/galvagnimatteo/carbonio-dockerization-tools/releases) and install it:
 
 ```bash
 sudo dpkg -i carbonio-dockerization-tools_*.deb
@@ -24,13 +24,13 @@ sudo rpm -i carbonio-dockerization-tools-*.rpm
 
 ### macOS
 
-Download the `.pkg` installer for your architecture (arm64 for Apple Silicon, amd64 for Intel) from the [Releases page](https://github.com/galvagnimatteo/carbonio-docker-cli/releases) and double-click to install.
+Download the `.pkg` installer for your architecture (arm64 for Apple Silicon, amd64 for Intel) from the [Releases page](https://github.com/galvagnimatteo/carbonio-dockerization-tools/releases) and double-click to install.
 
 This installs the GUI app to `/Applications` and the CLI to `/usr/local/bin`.
 
 ### Windows
 
-Download the `-setup.exe` installer from the [Releases page](https://github.com/galvagnimatteo/carbonio-docker-cli/releases) and run it.
+Download the `-setup.exe` installer from the [Releases page](https://github.com/galvagnimatteo/carbonio-dockerization-tools/releases) and run it.
 
 This installs both the GUI and CLI to `Program Files`, adds a Start Menu shortcut for the GUI, and adds the install directory to the system PATH so the CLI is available from any terminal.
 
@@ -170,9 +170,9 @@ The tools extract the embedded dockerization files to a system cache directory:
 
 | OS | Path |
 |---|---|
-| Linux | `~/.cache/carbonio-docker-cli/workdir` |
-| macOS | `~/Library/Caches/carbonio-docker-cli/workdir` |
-| Windows | `%LocalAppData%\carbonio-docker-cli\workdir` |
+| Linux | `~/.cache/carbonio-dockerization-tools/workdir` |
+| macOS | `~/Library/Caches/carbonio-dockerization-tools/workdir` |
+| Windows | `%LocalAppData%\carbonio-dockerization-tools\workdir` |
 
 Logs are saved to:
 

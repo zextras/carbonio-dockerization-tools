@@ -1,11 +1,11 @@
 package main
 
 import (
-	"carbonio-docker-cli/internal/config"
-	"carbonio-docker-cli/internal/docker"
-	"carbonio-docker-cli/internal/embedded"
-	"carbonio-docker-cli/internal/parser"
-	"carbonio-docker-cli/internal/preflight"
+	"carbonio-dockerization-tools/internal/config"
+	"carbonio-dockerization-tools/internal/docker"
+	"carbonio-dockerization-tools/internal/embedded"
+	"carbonio-dockerization-tools/internal/parser"
+	"carbonio-dockerization-tools/internal/preflight"
 	"fmt"
 	"log"
 	"os"

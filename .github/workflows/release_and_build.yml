@@ -86,13 +86,13 @@ jobs:
           CGO_ENABLED=0 go build \
             -ldflags="${LDFLAGS}" \
             -o artifacts/carbonio-dockerization-cli \
-            ./cmd/carbonio-docker-cli
+            ./cmd/carbonio-dockerization-cli
 
           echo "Building GUI..."
           go build \
             -ldflags="${LDFLAGS}" \
             -o artifacts/carbonio-dockerization-gui \
-            ./cmd/carbonio-docker-gui
+            ./cmd/carbonio-dockerization-gui
 
           echo "Creating .deb..."
           nfpm package --config nfpm.yaml --packager deb --target artifacts/
@@ -151,11 +151,11 @@ jobs:
           mkdir -p artifacts
 
           echo "Building CLI..."
-          CGO_ENABLED=0 go build -ldflags="${LDFLAGS}" -o carbonio-dockerization-cli ./cmd/carbonio-docker-cli
+          CGO_ENABLED=0 go build -ldflags="${LDFLAGS}" -o carbonio-dockerization-cli ./cmd/carbonio-dockerization-cli
 
           echo "Generating version info for GUI..."
           printf 'package main\n\nfunc init() {\n\tversion = "%s"\n\tcommit = "%s"\n\tdate = "%s"\n}\n' \
-            "${VERSION}" "${COMMIT}" "${DATE}" > cmd/carbonio-docker-gui/version_gen.go
+            "${VERSION}" "${COMMIT}" "${DATE}" > cmd/carbonio-dockerization-gui/version_gen.go
 
           echo "Creating .app bundle..."
           fyne package \
@@ -164,9 +164,9 @@ jobs:
             -appID com.zextras.carbonio-dockerization-gui \
             -name "Carbonio Dockerization GUI" \
             -appVersion "${VERSION}" \
-            -src ./cmd/carbonio-docker-gui
+            -src ./cmd/carbonio-dockerization-gui
 
-          rm -f cmd/carbonio-docker-gui/version_gen.go
+          rm -f cmd/carbonio-dockerization-gui/version_gen.go
 
           APP_NAME="Carbonio Dockerization GUI.app"
           if [ ! -d "${APP_NAME}" ]; then
@@ -228,11 +228,11 @@ jobs:
           mkdir -p build-output
 
           echo "Building CLI..."
-          CGO_ENABLED=0 go build -ldflags="${LDFLAGS}" -o build-output/carbonio-dockerization-cli.exe ./cmd/carbonio-docker-cli
+          CGO_ENABLED=0 go build -ldflags="${LDFLAGS}" -o build-output/carbonio-dockerization-cli.exe ./cmd/carbonio-dockerization-cli
 
           echo "Generating version info for GUI..."
           printf 'package main\n\nfunc init() {\n\tversion = "%s"\n\tcommit = "%s"\n\tdate = "%s"\n}\n' \
-            "${VERSION}" "${COMMIT}" "${DATE}" > cmd/carbonio-docker-gui/version_gen.go
+            "${VERSION}" "${COMMIT}" "${DATE}" > cmd/carbonio-dockerization-gui/version_gen.go
 
           echo "Creating GUI .exe..."
           fyne package \
@@ -241,9 +241,9 @@ jobs:
             -appID com.zextras.carbonio-dockerization-gui \
             -name "Carbonio Dockerization GUI" \
             -appVersion "${VERSION}" \
-            -src ./cmd/carbonio-docker-gui
+            -src ./cmd/carbonio-dockerization-gui
 
-          rm -f cmd/carbonio-docker-gui/version_gen.go
+          rm -f cmd/carbonio-dockerization-gui/version_gen.go
 
           # fyne package produces the exe in current dir
           mv "Carbonio Dockerization GUI.exe" build-output/carbonio-dockerization-gui.exe 2>/dev/null || \

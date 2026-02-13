@@ -1,9 +1,9 @@
 package gui
 
 import (
-	"carbonio-docker-cli/internal/config"
-	"carbonio-docker-cli/internal/graph"
-	"carbonio-docker-cli/internal/parser"
+	"carbonio-dockerization-tools/internal/config"
+	"carbonio-dockerization-tools/internal/graph"
+	"carbonio-dockerization-tools/internal/parser"
 	"fmt"
 	"image/color"
 	"sort"

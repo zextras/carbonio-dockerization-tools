@@ -1,9 +1,9 @@
 package main
 
 import (
-	"carbonio-docker-cli/internal/embedded"
-	"carbonio-docker-cli/internal/gui"
-	"carbonio-docker-cli/internal/preflight"
+	"carbonio-dockerization-tools/internal/embedded"
+	"carbonio-dockerization-tools/internal/gui"
+	"carbonio-dockerization-tools/internal/preflight"
 	"fmt"
 	"log"
 	"os"

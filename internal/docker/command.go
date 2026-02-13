@@ -1,8 +1,8 @@
 package docker
 
 import (
-	"carbonio-docker-cli/internal/config"
-	"carbonio-docker-cli/internal/parser"
+	"carbonio-dockerization-tools/internal/config"
+	"carbonio-dockerization-tools/internal/parser"
 	"fmt"
 	"strings"
 )

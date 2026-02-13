@@ -1,9 +1,9 @@
 package gui
 
 import (
-	"carbonio-docker-cli/internal/config"
-	"carbonio-docker-cli/internal/docker"
-	"carbonio-docker-cli/internal/parser"
+	"carbonio-dockerization-tools/internal/config"
+	"carbonio-dockerization-tools/internal/docker"
+	"carbonio-dockerization-tools/internal/parser"
 	"fmt"
 	"io"
 	"log"

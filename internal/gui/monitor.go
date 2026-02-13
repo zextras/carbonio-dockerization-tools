@@ -1,8 +1,8 @@
 package gui
 
 import (
-	"carbonio-docker-cli/internal/parser"
-	"carbonio-docker-cli/internal/provisioner"
+	"carbonio-dockerization-tools/internal/parser"
+	"carbonio-dockerization-tools/internal/provisioner"
 	"context"
 	"encoding/json"
 	"fmt"

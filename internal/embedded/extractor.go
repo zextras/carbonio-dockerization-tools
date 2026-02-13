@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	AppName = "carbonio-docker-cli"
+	AppName = "carbonio-dockerization-tools"
 	WorkDir = "workdir"
 )
 
@@ -34,9 +34,9 @@ func NewExtractor() (*Extractor, error) {
 
 // getAppCacheDir returns the application's cache directory.
 // Uses os.UserCacheDir() which returns:
-//   - Linux: ~/.cache/carbonio-docker-cli
-//   - macOS: ~/Library/Caches/carbonio-docker-cli
-//   - Windows: %LocalAppData%\carbonio-docker-cli
+//   - Linux: ~/.cache/carbonio-dockerization-tools
+//   - macOS: ~/Library/Caches/carbonio-dockerization-tools
+//   - Windows: %LocalAppData%\carbonio-dockerization-tools
 func getAppCacheDir() (string, error) {
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
