@@ -245,9 +245,8 @@ jobs:
 
           rm -f cmd/carbonio-dockerization-gui/version_gen.go
 
-          # fyne package produces the exe in current dir
-          mv "Carbonio Dockerization GUI.exe" build-output/carbonio-dockerization-gui.exe 2>/dev/null || \
-            mv *.exe build-output/carbonio-dockerization-gui.exe 2>/dev/null || true
+          # fyne package produces the exe in the --src directory
+          mv "cmd/carbonio-dockerization-gui/Carbonio Dockerization GUI.exe" build-output/carbonio-dockerization-gui.exe
 
       - name: Create installer with Inno Setup
         env:
