@@ -159,12 +159,12 @@ jobs:
 
           echo "Creating .app bundle..."
           GOARCH=${{ matrix.goarch }} fyne package \
-            -os darwin \
-            -icon "$PWD/carbonio-docker-logo.png" \
-            -appID com.zextras.carbonio-dockerization-gui \
-            -name "Carbonio Dockerization GUI" \
-            -appVersion "${VERSION}" \
-            -src ./cmd/carbonio-dockerization-gui
+            --os darwin \
+            --icon "$PWD/carbonio-docker-logo.png" \
+            --app-id com.zextras.carbonio-dockerization-gui \
+            --name "Carbonio Dockerization GUI" \
+            --app-version "${VERSION}" \
+            --src ./cmd/carbonio-dockerization-gui
 
           rm -f cmd/carbonio-dockerization-gui/version_gen.go
 
@@ -236,12 +236,12 @@ jobs:
 
           echo "Creating GUI .exe..."
           fyne package \
-            -os windows \
-            -icon "$PWD/carbonio-docker-logo.png" \
-            -appID com.zextras.carbonio-dockerization-gui \
-            -name "Carbonio Dockerization GUI" \
-            -appVersion "${VERSION}" \
-            -src ./cmd/carbonio-dockerization-gui
+            --os windows \
+            --icon "$PWD/carbonio-docker-logo.png" \
+            --app-id com.zextras.carbonio-dockerization-gui \
+            --name "Carbonio Dockerization GUI" \
+            --app-version "${VERSION}" \
+            --src ./cmd/carbonio-dockerization-gui
 
           rm -f cmd/carbonio-dockerization-gui/version_gen.go
 
