@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -46,81 +47,109 @@ func (e *Executor) CleanupExisting(edition string) error {
 	return e.CleanupAll()
 }
 
-// conflictingVolumePrefix returns the Docker volume prefix of the OTHER edition.
-// CE uses "carbonio_", Advanced uses "carbonio-advanced_".
-func (e *Executor) conflictingVolumePrefix() string {
+// conflictingProject returns the compose project name of the OTHER edition.
+func (e *Executor) conflictingProject() string {
 	if e.edition == "advanced" {
-		return "carbonio_"
+		return "carbonio"
 	}
-	return "carbonio-advanced_"
+	return "carbonio-advanced"
 }
 
-// HasConflictingVolumes checks whether Docker volumes from a different edition exist.
-func (e *Executor) HasConflictingVolumes() bool {
-	prefix := e.conflictingVolumePrefix()
-	cmd := exec.Command("docker", "volume", "ls", "--filter", "name="+prefix, "-q")
+// getComposeVolumeNames returns the actual Docker volume names defined in the
+// compose files for the given project, by parsing `docker compose config`.
+// This correctly resolves both auto-prefixed names and hardcoded `name:` values.
+func (e *Executor) getComposeVolumeNames(projectName string) []string {
+	args := []string{
+		"compose",
+		"--project-name", projectName,
+		"-f", "docker-compose.yaml",
+	}
+	// Advanced uses both compose files, CE uses only the base one
+	if projectName == "carbonio-advanced" {
+		args = append(args, "-f", "docker-compose-advanced.yaml")
+	}
+	args = append(args, "config", "--format", "json")
+
+	cmd := e.createDockerCommand(args...)
 	out, err := cmd.Output()
 	if err != nil {
-		log.Printf("Warning: could not list Docker volumes: %v", err)
-		return false
+		log.Printf("Warning: could not get compose config for %s: %v", projectName, err)
+		return nil
 	}
-	return strings.TrimSpace(string(out)) != ""
+
+	var config struct {
+		Volumes map[string]struct {
+			Name string `json:"name"`
+		} `json:"volumes"`
+	}
+	if err := json.Unmarshal(out, &config); err != nil {
+		log.Printf("Warning: could not parse compose config: %v", err)
+		return nil
+	}
+
+	var names []string
+	for _, vol := range config.Volumes {
+		if vol.Name != "" {
+			names = append(names, vol.Name)
+		}
+	}
+	log.Printf("Resolved %d volume names for project %s: %v", len(names), projectName, names)
+	return names
 }
 
-// CleanConflictingVolumes removes volumes from the other edition and runs
-// compose down for the conflicting project to ensure a clean switch.
-func (e *Executor) CleanConflictingVolumes() error {
-	prefix := e.conflictingVolumePrefix()
-	log.Printf("Cleaning conflicting volumes with prefix %s...", prefix)
+// HasConflictingVolumes checks whether Docker volumes from a different edition exist,
+// by reading the actual volume names from the compose files.
+func (e *Executor) HasConflictingVolumes() bool {
+	project := e.conflictingProject()
+	volumeNames := e.getComposeVolumeNames(project)
+	for _, name := range volumeNames {
+		cmd := exec.Command("docker", "volume", "inspect", name)
+		if err := cmd.Run(); err == nil {
+			log.Printf("Found conflicting volume: %s (from project %s)", name, project)
+			return true
+		}
+	}
+	return false
+}
 
-	// Determine conflicting project name
-	conflictingProject := "carbonio"
-	if e.edition != "advanced" {
-		conflictingProject = "carbonio-advanced"
+// CleanConflictingVolumes removes volumes and containers from the other edition.
+func (e *Executor) CleanConflictingVolumes() error {
+	project := e.conflictingProject()
+	log.Printf("Cleaning conflicting edition: project %s...", project)
+
+	// Build compose file args matching the conflicting edition
+	composeArgs := []string{
+		"compose",
+		"--project-name", project,
+		"-f", "docker-compose.yaml",
+	}
+	if project == "carbonio-advanced" {
+		composeArgs = append(composeArgs, "-f", "docker-compose-advanced.yaml")
 	}
 
 	// Stop + down -v for the conflicting project
-	stopCmd := e.createDockerCommand(
-		"compose",
-		"--project-name", conflictingProject,
-		"-f", "docker-compose.yaml",
-		"-f", "docker-compose-advanced.yaml",
-		"stop",
-	)
+	stopCmd := e.createDockerCommand(append(composeArgs, "stop")...)
 	stopCmd.Run()
 
-	downCmd := e.createDockerCommand(
-		"compose",
-		"--project-name", conflictingProject,
-		"-f", "docker-compose.yaml",
-		"-f", "docker-compose-advanced.yaml",
-		"down", "-v",
-		"--remove-orphans",
-	)
+	downCmd := e.createDockerCommand(append(composeArgs, "down", "-v", "--remove-orphans")...)
 	if err := downCmd.Run(); err != nil {
-		log.Printf("Compose down for %s: %v (may not exist)", conflictingProject, err)
+		log.Printf("Compose down for %s: %v (may not exist)", project, err)
 	}
 
-	// Ensure everything is actually gone
-	e.forceRemoveProjectContainers([]string{conflictingProject})
+	// Ensure all containers are actually gone
+	e.forceRemoveProjectContainers([]string{project})
 
-	// Remove any remaining volumes matching the prefix
-	listCmd := exec.Command("docker", "volume", "ls", "--filter", "name="+prefix, "-q")
-	out, err := listCmd.Output()
-	if err != nil {
-		return fmt.Errorf("failed to list conflicting volumes: %w", err)
-	}
-	volumes := strings.Fields(strings.TrimSpace(string(out)))
-	for _, vol := range volumes {
-		rmCmd := exec.Command("docker", "volume", "rm", "-f", vol)
+	// Remove any volumes that compose down -v may have missed (e.g. hardcoded names)
+	for _, name := range e.getComposeVolumeNames(project) {
+		rmCmd := exec.Command("docker", "volume", "rm", "-f", name)
 		if err := rmCmd.Run(); err != nil {
-			log.Printf("Warning: failed to remove volume %s: %v", vol, err)
+			log.Printf("Warning: failed to remove volume %s: %v", name, err)
 		} else {
-			log.Printf("Removed conflicting volume: %s", vol)
+			log.Printf("Removed conflicting volume: %s", name)
 		}
 	}
 
-	log.Println("Conflicting volume cleanup done")
+	log.Println("Conflicting edition cleanup done")
 	return nil
 }
 
