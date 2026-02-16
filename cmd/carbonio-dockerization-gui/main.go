@@ -8,6 +8,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -20,6 +22,8 @@ var (
 )
 
 func main() {
+	ensurePATH()
+
 	// Setup logging
 	logDir := filepath.Join(os.Getenv("HOME"), ".local", "state", "carbonio-dockerization")
 	os.MkdirAll(logDir, 0755)
@@ -47,6 +51,27 @@ func main() {
 	runPreflightChecks(w, logPath)
 
 	w.ShowAndRun()
+}
+
+// ensurePATH adds common Docker install locations to PATH on macOS.
+// GUI .app bundles inherit a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin)
+// that doesn't include directories where Docker Desktop places its binaries.
+func ensurePATH() {
+	if runtime.GOOS != "darwin" {
+		return
+	}
+	extra := []string{
+		"/usr/local/bin",
+		"/opt/homebrew/bin",
+		"/Applications/Docker.app/Contents/Resources/bin",
+	}
+	current := os.Getenv("PATH")
+	for _, p := range extra {
+		if !strings.Contains(current, p) {
+			current += ":" + p
+		}
+	}
+	os.Setenv("PATH", current)
 }
 
 func runPreflightChecks(w fyne.Window, logPath string) {
