@@ -140,3 +140,34 @@ To install non-arm64 images, you can use:
 ```bash
 export DOCKER_DEFAULT_PLATFORM=linux/amd64
 ```
+
+## Building and Running Local Images
+
+If you want to build and run a local Docker image (e.g., for development or testing), follow these steps:
+
+### 1. Build the local image
+
+Navigate to your project directory and build the image with the `linux/amd64` platform (required for Mac arm64 compatibility):
+
+```bash
+docker build --platform linux/amd64 -t <image-name>:local .
+```
+
+### 2. Run with the local image
+
+Export the image environment variable and run the appropriate start script.
+
+### Example: carbonio-admin-console-ui
+
+```bash
+# Build the image
+docker build --platform linux/amd64 -t carbonio-admin-console-ui:local .
+
+# Run with the local image
+export CARBONIO_ADMIN_CONSOLE_UI_IMAGE=carbonio-admin-console-ui:local
+./start-admin.sh --advanced
+```
+
+### Available Image Environment Variables
+
+You can override other service images using similar environment variables. Check the compose files for available image variables.
