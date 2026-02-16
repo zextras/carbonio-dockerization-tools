@@ -4,7 +4,6 @@ services:
   event-listener:
     build:
       context: ./consul-service-registrator
-    container_name: event-listener
     privileged: true
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -270,7 +269,6 @@ services:
 
   carbonio-message-broker:
     image: ${CARBONIO_MESSAGE_BROKER_IMAGE:-registry.dev.zextras.com/dev/carbonio-message-broker:${CARBONIO_GLOBAL_IMAGES_TAG:-latest}}
-    container_name: carbonio-message-broker
     hostname: carbonio-message-broker
     restart: unless-stopped
     volumes:
