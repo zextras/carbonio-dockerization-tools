@@ -79,18 +79,30 @@ func (e *Executor) CleanConflictingVolumes() error {
 		conflictingProject = "carbonio-advanced"
 	}
 
-	// Compose down -v for the conflicting project
-	cmd := e.createDockerCommand(
+	// Stop + down -v for the conflicting project
+	stopCmd := e.createDockerCommand(
+		"compose",
+		"--project-name", conflictingProject,
+		"-f", "docker-compose.yaml",
+		"-f", "docker-compose-advanced.yaml",
+		"stop",
+	)
+	stopCmd.Run()
+
+	downCmd := e.createDockerCommand(
 		"compose",
 		"--project-name", conflictingProject,
 		"-f", "docker-compose.yaml",
 		"-f", "docker-compose-advanced.yaml",
 		"down", "-v",
-		"--timeout", "5",
+		"--remove-orphans",
 	)
-	if err := cmd.Run(); err != nil {
+	if err := downCmd.Run(); err != nil {
 		log.Printf("Compose down for %s: %v (may not exist)", conflictingProject, err)
 	}
+
+	// Ensure everything is actually gone
+	e.forceRemoveProjectContainers([]string{conflictingProject})
 
 	// Remove any remaining volumes matching the prefix
 	listCmd := exec.Command("docker", "volume", "ls", "--filter", "name="+prefix, "-q")
@@ -164,6 +176,31 @@ func (e *Executor) createDockerCommand(args ...string) *exec.Cmd {
 	return cmd
 }
 
+// forceRemoveProjectContainers lists all containers belonging to the given
+// project names and force-removes any that still exist. It loops until none
+// remain so the caller can be certain everything is down.
+func (e *Executor) forceRemoveProjectContainers(projectNames []string) {
+	for _, project := range projectNames {
+		for {
+			cmd := exec.Command("docker", "ps", "-aq", "--filter", "label=com.docker.compose.project="+project)
+			out, err := cmd.Output()
+			if err != nil {
+				log.Printf("Warning: could not list containers for project %s: %v", project, err)
+				break
+			}
+			ids := strings.Fields(strings.TrimSpace(string(out)))
+			if len(ids) == 0 {
+				break
+			}
+			log.Printf("Force-removing %d remaining containers for project %s...", len(ids), project)
+			args := append([]string{"rm", "-f"}, ids...)
+			rmCmd := exec.Command("docker", args...)
+			rmCmd.Run()
+			time.Sleep(1 * time.Second)
+		}
+	}
+}
+
 func (e *Executor) cleanupAllWithOutput(showOutput bool) error {
 	log.Println("Running complete cleanup (CE + Advanced)...")
 	fmt.Printf("Working directory: %s\n", e.workDir)
@@ -180,13 +217,12 @@ func (e *Executor) cleanupAllWithOutput(showOutput bool) error {
 			"-f", "docker-compose.yaml",
 			"-f", "docker-compose-advanced.yaml",
 			"stop",
-			"--timeout", "30",
 		)
 		if showOutput {
 			stopCmd.Stdout = os.Stdout
 			stopCmd.Stderr = os.Stderr
 		}
-		stopCmd.Run() // Ignore errors - project may not exist
+		stopCmd.Run()
 
 		cmd := e.createDockerCommand(
 			"compose",
@@ -195,19 +231,18 @@ func (e *Executor) cleanupAllWithOutput(showOutput bool) error {
 			"-f", "docker-compose-advanced.yaml",
 			"down",
 			"--remove-orphans",
-			"--timeout", "30",
 		)
 		if showOutput {
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 		}
-		cmd.Run() // Ignore errors - project may not exist
+		cmd.Run()
 	}
 
-	time.Sleep(2 * time.Second)
+	// Ensure everything is actually gone
+	e.forceRemoveProjectContainers(projectNames)
 
 	log.Println("Removing consul data volume to prevent rejoin errors...")
-	// Consul volumes use default naming: {project-name}_{volume-name}
 	consulVolumeNames := []string{
 		"carbonio_consul-data",
 		"carbonio-advanced_consul-data-advanced",
@@ -222,24 +257,15 @@ func (e *Executor) cleanupAllWithOutput(showOutput bool) error {
 	}
 
 	log.Println("Running docker system prune...")
-	for attempt := 1; attempt <= 2; attempt++ {
-		pruneCmd := e.createDockerCommand("system", "prune", "-f")
-		if showOutput {
-			pruneCmd.Stdout = os.Stdout
-			pruneCmd.Stderr = os.Stderr
-		}
-
-		if err := pruneCmd.Run(); err != nil {
-			log.Printf("System prune attempt %d failed: %v", attempt, err)
-			if attempt < 2 {
-				time.Sleep(2 * time.Second)
-				continue
-			}
-			return fmt.Errorf("system prune failed: %w", err)
-		}
-
+	pruneCmd := e.createDockerCommand("system", "prune", "-f")
+	if showOutput {
+		pruneCmd.Stdout = os.Stdout
+		pruneCmd.Stderr = os.Stderr
+	}
+	if err := pruneCmd.Run(); err != nil {
+		log.Printf("System prune failed: %v", err)
+	} else {
 		log.Println("System prune completed")
-		break
 	}
 
 	log.Println("Cleanup completed")
@@ -261,12 +287,14 @@ func (e *Executor) CleanAllVolumes() error {
 			"-f", "docker-compose.yaml",
 			"-f", "docker-compose-advanced.yaml",
 			"down", "-v",
-			"--timeout", "5",
+			"--remove-orphans",
 		)
 		if err := cmd.Run(); err != nil {
 			log.Printf("Volume cleanup for %s: %v (may not exist)", projectName, err)
 		}
 	}
+
+	e.forceRemoveProjectContainers(projectNames)
 
 	log.Println("Volume cleanup done")
 	return nil
