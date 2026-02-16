@@ -1,11 +1,16 @@
 package gui
 
 import (
+	"fmt"
 	"image/color"
+	"io"
+	"os"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
@@ -166,7 +171,8 @@ func showErrorDialog(message string, win fyne.Window) {
 
 // ShowFatalErrorDialog shows a custom error modal. OK closes the window (exits the app).
 // When onGuide is non-nil, a "Guide" button is shown alongside "OK".
-func ShowFatalErrorDialog(message string, win fyne.Window, onGuide func()) {
+// When logPath is non-empty, an "Export Logs" button lets the user save the log before exiting.
+func ShowFatalErrorDialog(message string, win fyne.Window, onGuide func(), logPath string) {
 	titleLabel := widget.NewRichText(&widget.TextSegment{
 		Text: "Error",
 		Style: widget.RichTextStyle{
@@ -180,15 +186,23 @@ func ShowFatalErrorDialog(message string, win fyne.Window, onGuide func()) {
 	okBtn := widget.NewButton("OK", nil)
 	okBtn.Importance = widget.MediumImportance
 
-	var buttons fyne.CanvasObject
+	var buttonList []fyne.CanvasObject
 	if onGuide != nil {
 		guideBtn := widget.NewButton("Guide", nil)
 		guideBtn.Importance = widget.MediumImportance
 		guideBtn.OnTapped = func() { onGuide() }
-		buttons = container.NewGridWithColumns(2, guideBtn, okBtn)
-	} else {
-		buttons = okBtn
+		buttonList = append(buttonList, guideBtn)
 	}
+
+	var exportBtn *widget.Button
+	if logPath != "" {
+		exportBtn = widget.NewButton("Export Logs", nil)
+		exportBtn.Importance = widget.MediumImportance
+		buttonList = append(buttonList, exportBtn)
+	}
+
+	buttonList = append(buttonList, okBtn)
+	buttons := container.NewGridWithColumns(len(buttonList), buttonList...)
 
 	minWidth := canvas.NewRectangle(color.Transparent)
 	minWidth.SetMinSize(fyne.NewSize(500, 0))
@@ -203,6 +217,81 @@ func ShowFatalErrorDialog(message string, win fyne.Window, onGuide func()) {
 		messageLabel,
 		widget.NewSeparator(),
 		buttons,
+	)
+
+	card := container.NewStack(bg, container.NewPadded(inner))
+	pop := widget.NewModalPopUp(card, win.Canvas())
+	okBtn.OnTapped = func() {
+		pop.Hide()
+		win.Close()
+	}
+	if exportBtn != nil {
+		exportBtn.OnTapped = func() {
+			pop.Hide()
+			exportLogsThenClose(logPath, win)
+		}
+	}
+	pop.Show()
+}
+
+// exportLogsThenClose opens a save dialog for the log file, then closes the app.
+func exportLogsThenClose(logPath string, win fyne.Window) {
+	fd := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
+		if err != nil || writer == nil {
+			win.Close()
+			return
+		}
+		defer writer.Close()
+
+		src, err := os.Open(logPath)
+		if err != nil {
+			showErrorDialog(fmt.Sprintf("Failed to open log file: %v", err), win)
+			win.Close()
+			return
+		}
+		defer src.Close()
+
+		if _, err := io.Copy(writer, src); err != nil {
+			showErrorDialog(fmt.Sprintf("Failed to copy logs: %v", err), win)
+			win.Close()
+			return
+		}
+
+		destPath := writer.URI().Path()
+		showSuccessDialogThenClose("Logs Exported", fmt.Sprintf("Saved to:\n%s", destPath), win)
+	}, win)
+
+	timestamp := time.Now().Format("2006-01-02_150405")
+	fd.SetFileName(fmt.Sprintf("carbonio-dockerization-gui-logs-%s.log", timestamp))
+	fd.Show()
+}
+
+func showSuccessDialogThenClose(title, message string, win fyne.Window) {
+	titleLabel := widget.NewRichText(&widget.TextSegment{
+		Text: title,
+		Style: widget.RichTextStyle{
+			SizeName:  theme.SizeNameSubHeadingText,
+			TextStyle: fyne.TextStyle{Bold: true},
+		},
+	})
+	messageLabel := widget.NewLabel(message)
+
+	okBtn := widget.NewButton("OK", nil)
+	okBtn.Importance = widget.HighImportance
+
+	minW := canvas.NewRectangle(color.Transparent)
+	minW.SetMinSize(fyne.NewSize(500, 0))
+
+	bg := canvas.NewRectangle(theme.OverlayBackgroundColor())
+	bg.CornerRadius = 8
+
+	inner := container.NewVBox(
+		minW,
+		titleLabel,
+		widget.NewSeparator(),
+		messageLabel,
+		widget.NewSeparator(),
+		okBtn,
 	)
 
 	card := container.NewStack(bg, container.NewPadded(inner))

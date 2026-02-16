@@ -1,11 +1,14 @@
 package gui
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -16,6 +19,7 @@ type dockerConfig struct {
 	Auths map[string]struct {
 		Auth string `json:"auth"`
 	} `json:"auths"`
+	CredsStore string `json:"credsStore"`
 }
 
 type tagsResponse struct {
@@ -27,6 +31,35 @@ const registryHost = "registry.dev.zextras.com"
 
 func IsOurRegistry(imageBase string) bool {
 	return strings.HasPrefix(imageBase, registryHost+"/")
+}
+
+// CheckRegistryAuth verifies that we can authenticate to the registry.
+// Returns nil on success, or an error describing what went wrong.
+func CheckRegistryAuth() error {
+	auth, err := readDockerAuth(registryHost)
+	if err != nil {
+		return fmt.Errorf("cannot read Docker credentials for %s: %w\n\nRun \"docker login %s\" in a terminal first.", registryHost, err, registryHost)
+	}
+
+	// Verify credentials with a lightweight /v2/ ping
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequest("GET", fmt.Sprintf("https://%s/v2/", registryHost), nil)
+	if err != nil {
+		return fmt.Errorf("cannot create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Basic "+auth)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("cannot reach registry %s: %w", registryHost, err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("Docker credentials for %s are invalid or expired.\n\nRun \"docker login %s\" to refresh them.", registryHost, registryHost)
+	}
+
+	return nil
 }
 
 func FetchTags(imageBase string) []string {
@@ -95,16 +128,52 @@ func readDockerAuth(host string) (string, error) {
 		return "", fmt.Errorf("cannot parse docker config: %w", err)
 	}
 
-	entry, ok := cfg.Auths[host]
-	if !ok {
-		return "", fmt.Errorf("no auth entry for host %s", host)
+	// Try inline auth first
+	if entry, ok := cfg.Auths[host]; ok && entry.Auth != "" {
+		return entry.Auth, nil
 	}
 
-	if entry.Auth == "" {
-		return "", fmt.Errorf("empty auth for host %s", host)
+	// Try credential helper (credsStore: "osxkeychain", "desktop", etc.)
+	if cfg.CredsStore != "" {
+		auth, err := readFromCredentialHelper(cfg.CredsStore, host)
+		if err != nil {
+			return "", fmt.Errorf("credential helper %q failed for %s: %w", cfg.CredsStore, host, err)
+		}
+		return auth, nil
 	}
 
-	return entry.Auth, nil
+	return "", fmt.Errorf("no auth for host %s (no inline token and no credsStore configured)", host)
+}
+
+// readFromCredentialHelper invokes docker-credential-<helper> get
+// and returns the base64-encoded "user:password" token.
+func readFromCredentialHelper(helper, host string) (string, error) {
+	helperBin := "docker-credential-" + helper
+	cmd := exec.Command(helperBin, "get")
+	cmd.Stdin = strings.NewReader("https://" + host)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("%s: %v (stderr: %s)", helperBin, err, strings.TrimSpace(stderr.String()))
+	}
+
+	var creds struct {
+		Username string `json:"Username"`
+		Secret   string `json:"Secret"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &creds); err != nil {
+		return "", fmt.Errorf("cannot parse %s output: %w", helperBin, err)
+	}
+
+	if creds.Username == "" || creds.Secret == "" {
+		return "", fmt.Errorf("%s returned empty credentials for %s", helperBin, host)
+	}
+
+	token := base64.StdEncoding.EncodeToString([]byte(creds.Username + ":" + creds.Secret))
+	return token, nil
 }
 
 func sortTags(tags []string) []string {

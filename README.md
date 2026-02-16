@@ -24,20 +24,16 @@ sudo rpm -i carbonio-dockerization-tools-*.rpm
 
 ### macOS
 
-Download the `.pkg` installer for your architecture (arm64 for Apple Silicon, amd64 for Intel) from the [Releases page](https://github.com/galvagnimatteo/carbonio-dockerization-tools/releases) and double-click to install.
+Download the `.pkg` installer for your architecture (arm64 for Apple Silicon, amd64 for Intel) from the [Releases page](https://github.com/galvagnimatteo/carbonio-dockerization-tools/releases).
+
+Since the app is not signed with an Apple Developer certificate, macOS Gatekeeper will block it. Remove the quarantine attribute and install via terminal:
+
+```bash
+xattr -d com.apple.quarantine ~/Downloads/carbonio-dockerization-*-darwin-*.pkg
+sudo installer -pkg ~/Downloads/carbonio-dockerization-*-darwin-*.pkg -target /
+```
 
 This installs the GUI app to `/Applications` and the CLI to `/usr/local/bin`.
-
-> **macOS Gatekeeper notice:** Since the app is not signed with an Apple Developer certificate, macOS will block it on first launch. You only need to do this once.
->
-> **Option A — Terminal:**
-> ```bash
-> xattr -cr ~/Downloads/carbonio-dockerization-*.pkg
-> ```
-> Then double-click the `.pkg` to install normally.
->
-> **Option B — System Settings:**
-> Double-click the `.pkg`. When macOS blocks it, go to **System Settings → Privacy & Security**, scroll down, and click **"Open Anyway"**.
 
 ### Windows
 

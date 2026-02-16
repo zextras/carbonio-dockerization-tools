@@ -77,6 +77,14 @@ func setCompactLabelStyle(label *widget.RichText, text string, italic bool, bold
 }
 
 func (a *App) ShowServicesScreen(resolver *graph.DependencyResolver) {
+	if err := CheckRegistryAuth(); err != nil {
+		ShowFatalErrorDialog(
+			fmt.Sprintf("Cannot fetch image tags from the registry.\n\n%v", err),
+			a.window, func() { ShowGuideDialog(a.window) }, a.logPath,
+		)
+		return
+	}
+
 	backendItems := buildBackendItems(a.parsedConfig, a.edition)
 	frontendItems := buildFrontendItems(a.parsedConfig)
 

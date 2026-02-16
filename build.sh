@@ -191,13 +191,11 @@ do_install() {
   echo "  /usr/local/bin/carbonio-dockerization-gui"
 
   if [ "$OS" = "Linux" ]; then
-    for size in 48 64 128 256 512; do
-      sudo install -Dm 644 "packaging/icons/${size}x${size}.png" "/usr/share/icons/hicolor/${size}x${size}/apps/carbonio-dockerization-gui.png"
-    done
-    sudo install -m 644 "packaging/icons/256x256.png" /usr/share/pixmaps/carbonio-dockerization-gui.png
+    sudo install -Dm 644 "$ICON" /usr/share/icons/hicolor/256x256/apps/carbonio-dockerization-gui.png
+    sudo install -m 644 "$ICON" /usr/share/pixmaps/carbonio-dockerization-gui.png
     sudo install -m 644 packaging/carbonio-dockerization-gui.desktop /usr/share/applications/carbonio-dockerization-gui.desktop
     sudo gtk-update-icon-cache /usr/share/icons/hicolor/ 2>/dev/null || true
-    echo "  /usr/share/icons/hicolor/*/apps/carbonio-dockerization-gui.png"
+    echo "  /usr/share/icons/hicolor/256x256/apps/carbonio-dockerization-gui.png"
     echo "  /usr/share/pixmaps/carbonio-dockerization-gui.png"
     echo "  /usr/share/applications/carbonio-dockerization-gui.desktop"
   elif [ "$OS" = "Darwin" ]; then
