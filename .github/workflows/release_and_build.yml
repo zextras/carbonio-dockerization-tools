@@ -124,7 +124,7 @@ jobs:
           - goarch: arm64
             runner: macos-latest
           - goarch: amd64
-            runner: macos-latest
+            runner: macos-13
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -174,7 +174,7 @@ jobs:
           fi
 
           echo "Ad-hoc signing .app bundle..."
-          codesign --deep --force -s - "${APP_NAME}"
+          codesign --deep --force --options runtime -s - "${APP_NAME}"
           echo "Verifying signature..."
           codesign --verify --verbose "${APP_NAME}"
 
