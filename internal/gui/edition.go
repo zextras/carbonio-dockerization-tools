@@ -87,14 +87,27 @@ func (a *App) buildVisibleServicesList() []string {
 }
 
 func (a *App) promptCleanPersistenceThenMonitor(envVars string, cmdParts []string) {
-	// If edition changed since last run, force clean without asking
-	if a.executor.HasEditionChanged() {
-		log.Println("Edition changed, forcing persistence cleanup")
-		a.cleanPersistence = true
-		a.startMonitor(envVars, cmdParts)
+	// If volumes from a different edition exist, clean them and go straight to monitor
+	if a.executor.HasConflictingVolumes() {
+		log.Println("Conflicting volumes from another edition detected, cleaning automatically")
+		prog := showProgressModal("Switching Edition",
+			"Removing volumes from the previous edition...", a.window)
+		go func() {
+			if err := a.executor.CleanConflictingVolumes(); err != nil {
+				log.Printf("Conflicting volume cleanup error: %v", err)
+			}
+			fyne.Do(func() {
+				prog.Hide()
+				a.startMonitor(envVars, cmdParts)
+			})
+		}()
 		return
 	}
 
+	a.showCleanPersistenceDialog(envVars, cmdParts)
+}
+
+func (a *App) showCleanPersistenceDialog(envVars string, cmdParts []string) {
 	titleLabel := widget.NewRichText(&widget.TextSegment{
 		Text: "Clean All Persistence",
 		Style: widget.RichTextStyle{
@@ -159,7 +172,6 @@ func (a *App) handleConfigImport(filePath string) {
 
 func (a *App) startMonitor(envVars string, cmdParts []string) {
 	visibleServices := a.buildVisibleServicesList()
-	a.executor.SaveLastEdition()
 	if a.cleanPersistence {
 		prog := showProgressModal("Cleaning Persistence",
 			"Removing all persistent volumes for a fresh start...", a.window)

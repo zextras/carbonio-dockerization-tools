@@ -2,13 +2,13 @@ package docker
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -46,25 +46,70 @@ func (e *Executor) CleanupExisting(edition string) error {
 	return e.CleanupAll()
 }
 
-const lastEditionFile = ".last-edition"
-
-// HasEditionChanged returns true if the current edition differs from the last
-// one that was started. Returns false if no previous edition was recorded.
-func (e *Executor) HasEditionChanged() bool {
-	data, err := os.ReadFile(filepath.Join(e.workDir, lastEditionFile))
-	if err != nil {
-		return false // no previous record, nothing to force
+// conflictingVolumePrefix returns the Docker volume prefix of the OTHER edition.
+// CE uses "carbonio_", Advanced uses "carbonio-advanced_".
+func (e *Executor) conflictingVolumePrefix() string {
+	if e.edition == "advanced" {
+		return "carbonio_"
 	}
-	prev := strings.TrimSpace(string(data))
-	return prev != "" && prev != e.edition
+	return "carbonio-advanced_"
 }
 
-// SaveLastEdition writes the current edition to disk so the next run can detect changes.
-func (e *Executor) SaveLastEdition() {
-	path := filepath.Join(e.workDir, lastEditionFile)
-	if err := os.WriteFile(path, []byte(e.edition), 0644); err != nil {
-		log.Printf("Warning: failed to save last edition: %v", err)
+// HasConflictingVolumes checks whether Docker volumes from a different edition exist.
+func (e *Executor) HasConflictingVolumes() bool {
+	prefix := e.conflictingVolumePrefix()
+	cmd := exec.Command("docker", "volume", "ls", "--filter", "name="+prefix, "-q")
+	out, err := cmd.Output()
+	if err != nil {
+		log.Printf("Warning: could not list Docker volumes: %v", err)
+		return false
 	}
+	return strings.TrimSpace(string(out)) != ""
+}
+
+// CleanConflictingVolumes removes volumes from the other edition and runs
+// compose down for the conflicting project to ensure a clean switch.
+func (e *Executor) CleanConflictingVolumes() error {
+	prefix := e.conflictingVolumePrefix()
+	log.Printf("Cleaning conflicting volumes with prefix %s...", prefix)
+
+	// Determine conflicting project name
+	conflictingProject := "carbonio"
+	if e.edition != "advanced" {
+		conflictingProject = "carbonio-advanced"
+	}
+
+	// Compose down -v for the conflicting project
+	cmd := e.createDockerCommand(
+		"compose",
+		"--project-name", conflictingProject,
+		"-f", "docker-compose.yaml",
+		"-f", "docker-compose-advanced.yaml",
+		"down", "-v",
+		"--timeout", "5",
+	)
+	if err := cmd.Run(); err != nil {
+		log.Printf("Compose down for %s: %v (may not exist)", conflictingProject, err)
+	}
+
+	// Remove any remaining volumes matching the prefix
+	listCmd := exec.Command("docker", "volume", "ls", "--filter", "name="+prefix, "-q")
+	out, err := listCmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to list conflicting volumes: %w", err)
+	}
+	volumes := strings.Fields(strings.TrimSpace(string(out)))
+	for _, vol := range volumes {
+		rmCmd := exec.Command("docker", "volume", "rm", "-f", vol)
+		if err := rmCmd.Run(); err != nil {
+			log.Printf("Warning: failed to remove volume %s: %v", vol, err)
+		} else {
+			log.Printf("Removed conflicting volume: %s", vol)
+		}
+	}
+
+	log.Println("Conflicting volume cleanup done")
+	return nil
 }
 
 func (e *Executor) CleanupAll() error {
@@ -277,8 +322,12 @@ func (e *Executor) ExecuteWithSignalHandler(envVars string, cmdParts []string, o
 			}
 		}()
 		scanner := bufio.NewScanner(stdout)
+		scanner.Split(scanLinesOrCR)
 		for scanner.Scan() {
 			line := scanner.Text()
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
 			log.Println(line)
 			outputChan <- line
 		}
@@ -291,8 +340,12 @@ func (e *Executor) ExecuteWithSignalHandler(envVars string, cmdParts []string, o
 			}
 		}()
 		scanner := bufio.NewScanner(stderr)
+		scanner.Split(scanLinesOrCR)
 		for scanner.Scan() {
 			line := scanner.Text()
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
 			log.Println(line)
 			outputChan <- line
 		}
@@ -309,6 +362,45 @@ func (e *Executor) ExecuteWithSignalHandler(envVars string, cmdParts []string, o
 	}
 
 	return nil
+}
+
+// scanLinesOrCR is a bufio.SplitFunc that splits on \n, \r\n, or \r.
+// Docker Compose uses \r for in-place progress updates (pull progress);
+// the default bufio.ScanLines only splits on \n.
+func scanLinesOrCR(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	if atEOF && len(data) == 0 {
+		return 0, nil, nil
+	}
+	// Find the earliest \r or \n
+	idxN := bytes.IndexByte(data, '\n')
+	idxR := bytes.IndexByte(data, '\r')
+
+	idx := -1
+	if idxN >= 0 && idxR >= 0 {
+		if idxR < idxN {
+			idx = idxR
+		} else {
+			idx = idxN
+		}
+	} else if idxN >= 0 {
+		idx = idxN
+	} else if idxR >= 0 {
+		idx = idxR
+	}
+
+	if idx >= 0 {
+		advance = idx + 1
+		// Handle \r\n as a single delimiter
+		if data[idx] == '\r' && idx+1 < len(data) && data[idx+1] == '\n' {
+			advance = idx + 2
+		}
+		return advance, data[:idx], nil
+	}
+
+	if atEOF {
+		return len(data), data, nil
+	}
+	return 0, nil, nil
 }
 
 func (e *Executor) StreamServiceLogs(ctx context.Context, serviceName string, tail int, outputChan chan string) error {

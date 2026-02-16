@@ -117,18 +117,21 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Force clean if edition changed, otherwise clean only if requested
-	editionChanged := executor.HasEditionChanged()
-	if editionChanged {
-		fmt.Fprintln(os.Stderr, "Edition changed since last run, cleaning all persistence...")
+	// Clean conflicting volumes from the other edition if they exist
+	if executor.HasConflictingVolumes() {
+		fmt.Fprintln(os.Stderr, "Conflicting volumes from another edition detected, cleaning...")
+		if err := executor.CleanConflictingVolumes(); err != nil {
+			log.Printf("Warning: conflicting volume cleanup failed: %v", err)
+		}
+		fmt.Println()
 	}
-	if clean || editionChanged {
+	if clean {
+		fmt.Fprintln(os.Stderr, "Cleaning all persistence...")
 		if err := executor.CleanAllVolumes(); err != nil {
 			log.Printf("Warning: volume cleanup failed: %v", err)
 		}
 		fmt.Println()
 	}
-	executor.SaveLastEdition()
 
 	// Build and execute docker compose
 	builder := docker.NewCommandBuilder(workDir, edition, parsedConfig)

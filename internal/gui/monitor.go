@@ -77,6 +77,8 @@ type monitoredService struct {
 	logLines  int
 	logBox    *fyne.Container
 	dot       *canvas.Circle
+	pulseAnim *fyne.Animation
+	pulsing   bool
 	toggleBtn *widget.Button
 }
 
@@ -151,12 +153,26 @@ func (a *App) ShowMonitorScreen(envVars string, cmdParts []string, visibleServic
 	for _, name := range sortedServices {
 		svc := &monitoredService{name: name}
 
-		// Colored dot for state
+		// Colored dot with pulse animation for pulling state
 		dot := canvas.NewCircle(colorUnknown)
 		dotSpacer := canvas.NewRectangle(color.Transparent)
 		dotSpacer.SetMinSize(fyne.NewSize(10, 10))
 		dotBox := container.NewStack(dotSpacer, dot)
+
+		pulseAnim := canvas.NewColorRGBAAnimation(
+			colorStarting,
+			color.NRGBA{R: 255, G: 165, B: 0, A: 60},
+			3*time.Second,
+			func(c color.Color) {
+				dot.FillColor = c
+				dot.Refresh()
+			},
+		)
+		pulseAnim.AutoReverse = true
+		pulseAnim.RepeatCount = fyne.AnimationRepeatForever
+
 		svc.dot = dot
+		svc.pulseAnim = pulseAnim
 
 		// Log entry (hidden by default) — not disabled so text stays white
 		logEntry := widget.NewMultiLineEntry()
@@ -213,19 +229,7 @@ func (a *App) ShowMonitorScreen(envVars string, cmdParts []string, visibleServic
 							}
 							cleaned := stripANSI(line)
 							fyne.Do(func() {
-								ms.logLines++
-								if ms.logLines > maxLogLines {
-									// Trim oldest lines
-									text := ms.logEntry.Text
-									idx := strings.Index(text, "\n")
-									if idx >= 0 {
-										text = text[idx+1:]
-									}
-									ms.logEntry.SetText(text + cleaned + "\n")
-								} else {
-									ms.logEntry.SetText(ms.logEntry.Text + cleaned + "\n")
-								}
-								ms.logEntry.CursorRow = ms.logLines
+								appendToServiceLog(ms, cleaned)
 							})
 						}
 					}
@@ -235,7 +239,7 @@ func (a *App) ShowMonitorScreen(envVars string, cmdParts []string, visibleServic
 		toggleBtn.Importance = widget.LowImportance
 		svc.toggleBtn = toggleBtn
 
-		// Layout: [dot] name ............. [▼]
+		// Layout: [dot/spinner] name ............. [▼]
 		headerRow := container.NewBorder(nil, nil,
 			container.NewCenter(dotBox),
 			toggleBtn,
@@ -283,6 +287,8 @@ func (a *App) ShowMonitorScreen(envVars string, cmdParts []string, visibleServic
 		}
 		mu.Unlock()
 		for _, ms := range monitored {
+			ms.pulsing = false
+			ms.pulseAnim.Stop()
 			ms.dot.FillColor = colorStopped
 			ms.dot.Refresh()
 		}
@@ -316,7 +322,7 @@ func (a *App) ShowMonitorScreen(envVars string, cmdParts []string, visibleServic
 
 	editionLabel := "CE (Community Edition)"
 	if a.edition == parser.EditionAdvanced {
-		editionLabel = "Advanced"
+		editionLabel = "Advanced Edition"
 	}
 	editionSubtitle := widget.NewRichText(&widget.TextSegment{
 		Text: editionLabel,
@@ -394,19 +400,30 @@ func (a *App) ShowMonitorScreen(envVars string, cmdParts []string, visibleServic
 		defer mu.Unlock()
 		for name, ms := range monitored {
 			stateStr := states[name].String()
-			var c color.Color
-			switch stateStr {
-			case "Running":
-				c = colorRunning
-			case "Starting", "Pulling", "Creating":
-				c = colorStarting
-			case "Error":
-				c = colorError
-			default:
-				c = colorUnknown
+			if stateStr == "Pulling" {
+				if !ms.pulsing {
+					ms.pulsing = true
+					ms.pulseAnim.Start()
+				}
+			} else {
+				if ms.pulsing {
+					ms.pulsing = false
+					ms.pulseAnim.Stop()
+				}
+				var c color.Color
+				switch stateStr {
+				case "Running":
+					c = colorRunning
+				case "Starting", "Creating":
+					c = colorStarting
+				case "Error":
+					c = colorError
+				default:
+					c = colorUnknown
+				}
+				ms.dot.FillColor = c
+				ms.dot.Refresh()
 			}
-			ms.dot.FillColor = c
-			ms.dot.Refresh()
 		}
 		updateGlobalStatus()
 	}
@@ -543,6 +560,23 @@ func fetchDockerStates(workDir, projectName string, trackedServices []string) ma
 	return result
 }
 
+// appendToServiceLog appends a line to a service's log entry, trimming old lines if needed.
+// Must be called from the UI thread (inside fyne.Do).
+func appendToServiceLog(ms *monitoredService, line string) {
+	ms.logLines++
+	if ms.logLines > maxLogLines {
+		text := ms.logEntry.Text
+		idx := strings.Index(text, "\n")
+		if idx >= 0 {
+			text = text[idx+1:]
+		}
+		ms.logEntry.SetText(text + line + "\n")
+	} else {
+		ms.logEntry.SetText(ms.logEntry.Text + line + "\n")
+	}
+	ms.logEntry.CursorRow = ms.logLines
+}
+
 func parseLogForStates(line string, services []string, states map[string]serviceState, mu *sync.Mutex) {
 	lineLower := strings.ToLower(line)
 	if strings.Contains(line, "|") {
@@ -555,7 +589,9 @@ func parseLogForStates(line string, services []string, states map[string]service
 		}
 
 		var newState serviceState
-		if strings.Contains(lineLower, "pulling") || strings.Contains(lineLower, "pull") {
+		if strings.Contains(lineLower, "pulled") {
+			newState = stateUnknown
+		} else if strings.Contains(lineLower, "pulling") || strings.Contains(lineLower, "pull") {
 			newState = statePulling
 		} else if strings.Contains(lineLower, "creating") {
 			newState = stateCreating

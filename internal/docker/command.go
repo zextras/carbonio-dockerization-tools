@@ -38,9 +38,6 @@ func (b *CommandBuilder) Build() (string, []string, error) {
 	if b.edition == parser.EditionAdvanced {
 		composeFiles = append(composeFiles, "docker-compose-advanced.yaml")
 	}
-	if NeedsPlatformOverride() {
-		composeFiles = append(composeFiles, "docker-compose.macos.override.yaml")
-	}
 	for serviceName, svc := range b.parsedConfig.BackendServices {
 		if imgConfig, selected := b.backendServices[serviceName]; selected {
 			if svc.EnvVar != "" {
