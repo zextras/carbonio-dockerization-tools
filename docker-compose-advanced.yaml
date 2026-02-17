@@ -33,6 +33,8 @@ services:
       - ./postgres/init_files.sql:/docker-entrypoint-initdb.d/init_files.sql
       - ./postgres/init_wsc.sql:/docker-entrypoint-initdb.d/init_wsc.sql
       - ./postgres/init_advanced.sql:/docker-entrypoint-initdb.d/init_advanced.sql
+      - ./postgres/init_notification_push.sql:/docker-entrypoint-initdb.d/init_notification_push.sql
+      - ./postgres/init_videorecorder.sql:/docker-entrypoint-initdb.d/init_videorecorder.sql
 
   carbonio-mariadb:
     volumes:
@@ -104,6 +106,15 @@ services:
       - shared-videoserver-advanced:/var/lib/videoserver
     environment:
       - CARBONIO_ENV=docker
+      - QUARKUS_CONSUL_CONFIG_AGENT_HOST_PORT=consul:8500
+      - POSTGRES_URL=jdbc:postgresql://carbonio-postgres:5432/carbonio-videorecorder-db
+    depends_on:
+      consul:
+        condition: service_healthy
+      consul-register:
+        condition: service_completed_successfully
+      carbonio-postgres:
+        condition: service_healthy
 
   carbonio-ws-collaboration:
     image: ${CARBONIO_WSC_IMAGE:-registry.dev.zextras.com/dev/carbonio-ws-collaboration:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
@@ -112,10 +123,32 @@ services:
       - VIDEO_RECORDER_PORT=8090
       - AUTH_HOST=carbonio-mailbox
       - AUTH_PORT=8742
+      - NOTIFICATION_HOST=carbonio-notification-push
+      - NOTIFICATION_PORT=10000
       - LICENSE_SUBSCRIPTION_SIGNATURE=MWNmNWU1YjI5ODkxZjdhYWQ0Mzk3YzM4ZDI1MWE3YjI5NzNjYzBjNDc3MDIzZmQzZTA4NTZiY2JiNTIzNWUyNTQyOGNiZjE4ODMyYzhjZDAyOGEwOTcwMGZkNDI1YTYxMjM5Yzc2Y2M1OWQ1MmM4YTZjODU5Y2RkMmY3MWM4NDEwODA1M2FkZjAxMmU2YjAyOWM0OGFhYTIzMTk0ZWIxZTVhMzI2OGNlYzc2MTBlZjhkMDMxYTY4YzBjMjA2ZTVlNzkxYmFiM2NmMDg1NjkwZTVhMTU5NDdiYzhhYThlZDEwYzAxZGFmNjllOWZkMTEzNDA3NDU0MDg2NmNlOWVhZjkzNzI4NDk2OTJkZWQ4Mjg2MDkyMjM4NjVhYmE3MmFjODQ5MjM2ODM0ZmJiYjgzZTUyZThjNjU0MGU1ZWY2MmRjNzZkMTc3NDUxNTgwZTRlMzczNTUzYjRiMjA4ZWE5ZjYwNDA5NjkwYzE1NTBiZTU3MWJjMjBlZmRiOWJiMTc3NTY3NWNmNTgwMWQ5NjczZDE2ZDA0MjVjNjViZjAwNzE4NWQxNDhlY2FhZTgwZTY2MjdiODAxMTQzNGNlNWM0MDMwN2EzMjY4NjZlYjgzNTgzZWVlN2U3ZTFkZmU4NDJlNzllYTU1NDZhMzM5MmI2NjFlNzdkNjU0MzZmMDBmNTQzNzllZjY5ZTljNWJiOWIwMDgwZTQ3M2FjNmU4NGZjNzA5NDNlY2E1NTMxNzg3ZWQ1NzM3OGNkYWM5Mjk4ZjJlMzcxZGJhMWMwOTAyZjE0YzQxMWYxNDcxNmVhZTY0YmMyZDFkNTA0NzhjMjUzYTBjYWZjMDYwZjQxMWJkOTlkMmUzM2U2NDA2NzhmZTIyMGZlNjNmMjJmY2UxNzY4YTU1MmJkNzJiNzkyMjE3YzAyMGM1MDlkY2VhOGZjMWY1MWEzODcwMzg3ZWI1MjRlYjdiOWFjN2EwM2M2NTBkOTJlODM3NjJiYTQxYzI5MGM3NDEwNTczNjc0OGJjMDRhNTJlYWU2M2IwZjVlODA4OTNlODhkZjExMTcwZTkyMWNjOGU3YzFlMTViYTJkOTY1Yzk3NjAxOGM1ZDhhMDA5NjhkYTI3NzQ0YmM4ZTUxNmJhZWMzOGY3NjQwNGFmOTY0MmRlZDAxNWZhZWU0OTAzZjIzZTVhZjlhYzFlNzczZTk5OTM1YzMxYzFkZTA3MzViNzc3ZTEyZGYzNGUyZGVkNjMzNGJhYzMyOTYwNjg2MmFmMmY2MWE5MjI4YjIwMTUxNmNiYzU5NzdlYzIxNGQwYWFkMmUzZGNkNzU1MDAwN2I4YjNhZDYzMmI2M2ExZGNjYjUxOWEzYThlY2I3N2UxMDQ2Zg==
       - LICENSE_SUBSCRIPTION=eyJjdXN0b21lciI6IlNvbmVyMiIsImRhdGVzdGFydCI6MTY0ODc3MTIwMDAwMCwidmVuZG9yIjoiWmV4dHJhcyIsInJlc2VsbGVyIjoxLCJvcmRlcl9pZCI6LTEsImNvbXBhbnkiOiIiLCJlbmRfdXNlciI6ImVuZCB1c2VyIDIiLCJwYWlkIjp0cnVlLCJtaW5femV4dHJhc192ZXJzaW9uIjoiNC4wLjAiLCJkYXRlZW5kIjozMjI2Njk0NDAwMDAwLCJsaWNlbnNlX3R5cGUiOiJSRUdVTEFSIiwiY3VzdG9tZXJfaWQiOiIwMDFNQTAwMDAwQjhLMWdZQUYiLCJyZXZpc2lvbiI6MSwibW9kdWxlcyI6eyJaeEJhY2t1cCI6eyJxdWFudGl0eSI6MTAwMDAwfSwiWnhNb2JpbGUiOnsicXVhbnRpdHkiOjEwMDAwMH0sIlp4QWRtaW4iOnsicXVhbnRpdHkiOjEwMDAwMH0sIlp4UG93ZXJzdG9yZSI6eyJxdWFudGl0eSI6MTAwMDAwfSwiWnhDaGF0Ijp7InF1YW50aXR5IjoxMDAwMDB9LCJTcHJveHlEIjp7InF1YW50aXR5IjoxMDAwMDB9LCJaeERyaXZlIjp7InF1YW50aXR5IjoxMDAwMDB9LCJaeEhBIjp7InF1YW50aXR5IjoxMDAwMDB9fSwiaW5mcmFzdHJ1Y3R1cmVfaWQiOiJmOTQzYWYyNi1lMTAzLTQyNTAtOTkyMy04ZThlNzg1YWNkZTgiLCJhdXRoZW50aWNhdGlvbl90b2tlbiI6IkFMTF9GRUFUVVJFU18xMDBLIiwiZmVhdHVyZXMiOlt7ImlkIjoiYXV0aF8yZmEiLCJxdWFudGl0eSI6LTEsImVuYWJsZWQiOnRydWV9LHsiaWQiOiJhY3RpdmVzeW5jX2Jhc2ljIiwicXVhbnRpdHkiOjEwMDAwMCwiZW5hYmxlZCI6dHJ1ZX0seyJpZCI6InN0b3JhZ2VzX2Jhc2ljIiwicXVhbnRpdHkiOi0xLCJlbmFibGVkIjp0cnVlfSx7ImlkIjoiYmFja3VwX3JlYWx0aW1lIiwicXVhbnRpdHkiOi0xLCJlbmFibGVkIjp0cnVlfSx7ImlkIjoiZmlsZXNfYmFzaWMiLCJxdWFudGl0eSI6LTEsImVuYWJsZWQiOnRydWV9LHsiaWQiOiJhcHBtYWlsX2Jhc2ljIiwicXVhbnRpdHkiOi0xLCJlbmFibGVkIjp0cnVlfSx7ImlkIjoiYmFja3VwX2Jhc2ljIiwicXVhbnRpdHkiOjEwMDAwMCwiZW5hYmxlZCI6dHJ1ZX0seyJpZCI6ImFjdGl2ZXN5bmNfc2hhcmVkX2ZvbGRlciIsInF1YW50aXR5IjotMSwiZW5hYmxlZCI6dHJ1ZX0seyJpZCI6ImFwcG1haWxfYWR2YW5jZWQiLCJxdWFudGl0eSI6MTAwMDAwLCJlbmFibGVkIjp0cnVlfSx7ImlkIjoic3RvcmFnZXNfY29ubl9iYXNpYyIsInF1YW50aXR5IjotMSwiZW5hYmxlZCI6dHJ1ZX0seyJpZCI6ImJhY2t1cF9pbXBvcnRfZXh0ZXJuYWwiLCJxdWFudGl0eSI6LTEsImVuYWJsZWQiOnRydWV9LHsiaWQiOiJhdXRoX3NhbWwiLCJxdWFudGl0eSI6LTEsImVuYWJsZWQiOnRydWV9LHsiaWQiOiJjaGF0c19yb29tcyIsInF1YW50aXR5IjoxMDAwLCJlbmFibGVkIjp0cnVlfSx7ImlkIjoic3RvcmFnZXNfY2VudHJhbGl6ZWQiLCJxdWFudGl0eSI6LTEsImVuYWJsZWQiOnRydWV9LHsiaWQiOiJzdG9yYWdlc19jb25uX3Nwcm94eWQiLCJxdWFudGl0eSI6LTEsImVuYWJsZWQiOnRydWV9LHsiaWQiOiJoYV9iYXNpYyIsInF1YW50aXR5IjoxMDAwMDAsImVuYWJsZWQiOnRydWV9LHsiaWQiOiJmaWxlc19kb2NzX2JhbGFuY2luZyIsInF1YW50aXR5IjotMSwiZW5hYmxlZCI6dHJ1ZX0seyJpZCI6IndzY19iYXNpYyIsInF1YW50aXR5IjotMSwiZW5hYmxlZCI6dHJ1ZX0seyJpZCI6ImFkbWluc19iYXNpYyIsInF1YW50aXR5IjotMSwiZW5hYmxlZCI6dHJ1ZX0seyJpZCI6ImNoYXRzX2Jhc2ljIiwicXVhbnRpdHkiOi0xLCJlbmFibGVkIjp0cnVlfSx7ImlkIjoic3RvcmFnZXNfaHNtIiwicXVhbnRpdHkiOi0xLCJlbmFibGVkIjp0cnVlfSx7ImlkIjoiY2hhdHNfcmVjb3JkaW5nIiwicXVhbnRpdHkiOi0xLCJlbmFibGVkIjp0cnVlfSx7ImlkIjoiYmFja3VwX2V4dF92b2x1bWUiLCJxdWFudGl0eSI6LTEsImVuYWJsZWQiOnRydWV9XSwibWFpbnRlbmFuY2VfZW5kX2RhdGUiOjAsInN1YnNjcmlwdGlvbl9lbmRfZGF0ZSI6MH0==
     depends_on:
       - carbonio-videorecorder
+      - carbonio-notification-push
+
+  carbonio-notification-push:
+    image: ${CARBONIO_NOTIFICATION_PUSH_IMAGE:-registry.dev.zextras.com/dev/carbonio-notification-push:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+    labels:
+      - "servicePort=10000"
+    restart: on-failure
+    environment:
+      - CONSUL_HTTP_ADDR=http://consul:8500
+    volumes:
+      - ./notification-push/config.properties:/etc/carbonio/notification-push/config.properties
+    depends_on:
+      consul:
+        condition: service_healthy
+      consul-register:
+        condition: service_completed_successfully
+      carbonio-postgres:
+        condition: service_healthy
+      carbonio-user-management:
+        condition: service_started
 
 volumes:
   ldap_data_advanced:
@@ -127,10 +160,7 @@ volumes:
   mailbox_store_advanced:
   app-volume-advanced:
   postgres_data_advanced:
-    name: carbonio-postgres-data-advanced
   storages_data_advanced:
-    name: carbonio-storages-data-advanced
   carbonio-message-broker_data_advanced:
-    name: carbonio_message-broker_data_advanced
   shared-videoserver-advanced:
   consul-data-advanced:
