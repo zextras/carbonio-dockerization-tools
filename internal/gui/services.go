@@ -6,6 +6,7 @@ import (
 	"carbonio-dockerization-tools/internal/parser"
 	"fmt"
 	"image/color"
+	"log"
 	"sort"
 	"strings"
 
@@ -87,6 +88,17 @@ func (a *App) ShowServicesScreen(resolver *graph.DependencyResolver) {
 
 	backendItems := buildBackendItems(a.parsedConfig, a.edition)
 	frontendItems := buildFrontendItems(a.parsedConfig)
+
+	// Probe: verify we can actually list tags (auth may pass but tag API may be down)
+	if probeImage := findProbeImage(backendItems); probeImage != "" {
+		if _, err := FetchTags(probeImage); err != nil {
+			ShowFatalErrorDialog(
+				fmt.Sprintf("Registry authentication succeeded, but cannot fetch image tags.\n\n%v", err),
+				a.window, func() { ShowGuideDialog(a.window) }, a.logPath,
+			)
+			return
+		}
+	}
 
 	backendSection := newSectionHeader("Backend Services")
 	backendList := buildServiceList(backendItems, resolver, a.window)
@@ -343,7 +355,11 @@ func buildServiceList(items []*serviceItem, resolver *graph.DependencyResolver, 
 
 		// Fetch tags in background
 		go func(item *serviceItem, sel *widget.Select) {
-			tags := FetchTags(item.imageBase)
+			tags, err := FetchTags(item.imageBase)
+			if err != nil {
+				log.Printf("FetchTags: %v", err)
+				return
+			}
 			if tags == nil {
 				return
 			}
@@ -510,6 +526,17 @@ func showCustomDialog(item *serviceItem, tagSelect *widget.Select, nameLabel *wi
 	}
 
 	pop.Show()
+}
+
+// findProbeImage returns the imageBase of the first service that belongs to our registry,
+// to use as a probe for verifying tag-list API availability.
+func findProbeImage(items []*serviceItem) string {
+	for _, item := range items {
+		if IsOurRegistry(item.imageBase) {
+			return item.imageBase
+		}
+	}
+	return ""
 }
 
 func autoSelectDeps(item *serviceItem, allItems []*serviceItem, resolver *graph.DependencyResolver) {

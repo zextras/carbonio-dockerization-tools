@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -62,22 +61,21 @@ func CheckRegistryAuth() error {
 	return nil
 }
 
-func FetchTags(imageBase string) []string {
+func FetchTags(imageBase string) ([]string, error) {
 	parts := strings.SplitN(imageBase, "/", 2)
 	if len(parts) != 2 {
-		return nil
+		return nil, nil
 	}
 	host := parts[0]
 	name := parts[1]
 
 	if host != registryHost {
-		return nil
+		return nil, nil
 	}
 
 	auth, err := readDockerAuth(host)
 	if err != nil {
-		log.Printf("FetchTags: failed to read docker auth for %s: %v", host, err)
-		return nil
+		return nil, fmt.Errorf("failed to read docker auth for %s: %w", host, err)
 	}
 
 	url := fmt.Sprintf("https://%s/v2/%s/tags/list", host, name)
@@ -85,30 +83,26 @@ func FetchTags(imageBase string) []string {
 	client := &http.Client{Timeout: 5 * time.Second}
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		log.Printf("FetchTags: failed to create request: %v", err)
-		return nil
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Basic "+auth)
 
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("FetchTags: request failed for %s: %v", name, err)
-		return nil
+		return nil, fmt.Errorf("request failed for %s: %w", name, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("FetchTags: unexpected status %d for %s", resp.StatusCode, name)
-		return nil
+		return nil, fmt.Errorf("unexpected status %d for %s", resp.StatusCode, name)
 	}
 
 	var result tagsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		log.Printf("FetchTags: failed to decode response for %s: %v", name, err)
-		return nil
+		return nil, fmt.Errorf("failed to decode response for %s: %w", name, err)
 	}
 
-	return sortTags(result.Tags)
+	return sortTags(result.Tags), nil
 }
 
 func readDockerAuth(host string) (string, error) {
