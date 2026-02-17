@@ -139,7 +139,7 @@ func (e *Executor) CleanConflictingVolumes() error {
 	// Ensure all containers are actually gone
 	e.forceRemoveProjectContainers([]string{project})
 
-	// Remove any volumes that compose down -v may have missed (e.g. hardcoded names)
+	// Remove any volumes that compose down -v may have missed
 	for _, name := range e.getComposeVolumeNames(project) {
 		rmCmd := exec.Command("docker", "volume", "rm", "-f", name)
 		if err := rmCmd.Run(); err != nil {
