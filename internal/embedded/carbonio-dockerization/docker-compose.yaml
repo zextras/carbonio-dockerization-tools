@@ -274,7 +274,7 @@ services:
     volumes:
       - carbonio-message-broker_data:/var/lib/rabbitmq
     healthcheck:
-      test: rabbitmq-diagnostics -q ping
+      test: rabbitmq-diagnostics -q check_port_connectivity
       interval: 10s
       timeout: 5s
       retries: 3
@@ -471,6 +471,9 @@ services:
     restart: unless-stopped
     volumes:
       - shared-videoserver:/var/lib/videoserver
+    depends_on:
+      carbonio-message-broker:
+        condition: service_healthy
 
   carbonio-ws-collaboration:
     image: ${CARBONIO_WSC_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-ws-collaboration-ce:${CARBONIO_GLOBAL_IMAGES_TAG:-latest}}
@@ -528,10 +531,7 @@ volumes:
   mailbox_store:
   app-volume:
   postgres_data:
-    name: carbonio-postgres-data
   storages_data:
-    name: carbonio-storages-data
   carbonio-message-broker_data:
-    name: carbonio_message-broker_data
   shared-videoserver:
   consul-data:
