@@ -4,6 +4,9 @@ import (
 	"carbonio-dockerization-tools/internal/config"
 	"carbonio-dockerization-tools/internal/parser"
 	"fmt"
+	"log"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -59,11 +62,40 @@ func (b *CommandBuilder) Build() (string, []string, error) {
 			envVars = append(envVars, fmt.Sprintf("%s=%s:%s", ui.EnvVar, imgConfig.Image, imgConfig.Tag))
 		}
 	}
+	// Detect services whose image has no registry domain (no dot in name).
+	// These are local images that must not be pulled from Docker Hub.
+	// When present, we drop the global --pull flag (which overrides per-service
+	// pull_policy) and instead set pull_policy per-service in an override file.
+	var localServices []string
+	for serviceName, imgConfig := range b.backendServices {
+		if !strings.Contains(imgConfig.Image, ".") {
+			localServices = append(localServices, serviceName)
+		}
+	}
+
+	hasLocalImages := len(localServices) > 0
+	if hasLocalImages {
+		overridePath := filepath.Join(os.TempDir(), "carbonio-local-pull-override.yaml")
+		var buf strings.Builder
+		buf.WriteString("services:\n")
+		for _, svc := range localServices {
+			fmt.Fprintf(&buf, "  %s:\n    pull_policy: never\n", svc)
+		}
+		if err := os.WriteFile(overridePath, []byte(buf.String()), 0644); err != nil {
+			return "", nil, fmt.Errorf("failed to write pull policy override: %w", err)
+		}
+		log.Printf("Local images detected for %v, wrote pull_policy override to %s", localServices, overridePath)
+		composeFiles = append(composeFiles, overridePath)
+	}
+
 	cmdParts := []string{"docker", "compose"}
 	for _, file := range composeFiles {
 		cmdParts = append(cmdParts, "-f", file)
 	}
-	cmdParts = append(cmdParts, "up", "--build", "--pull", "missing")
+	cmdParts = append(cmdParts, "up", "--build")
+	if !hasLocalImages {
+		cmdParts = append(cmdParts, "--pull", "missing")
+	}
 	cmdParts = append(cmdParts, selectedServices...)
 	return strings.Join(envVars, " "), cmdParts, nil
 }
