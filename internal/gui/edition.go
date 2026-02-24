@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"carbonio-dockerization-tools/internal/docker"
 	"carbonio-dockerization-tools/internal/graph"
 	"carbonio-dockerization-tools/internal/parser"
 	"image/color"
@@ -86,7 +87,7 @@ func (a *App) buildVisibleServicesList() []string {
 	return visible
 }
 
-func (a *App) promptCleanPersistenceThenMonitor(envVars string, cmdParts []string) {
+func (a *App) promptCleanPersistenceThenMonitor(result *docker.BuildResult) {
 	// If volumes from a different edition exist, clean them and go straight to monitor
 	if a.executor.HasConflictingVolumes() {
 		log.Println("Conflicting volumes from another edition detected, cleaning automatically")
@@ -98,16 +99,16 @@ func (a *App) promptCleanPersistenceThenMonitor(envVars string, cmdParts []strin
 			}
 			fyne.Do(func() {
 				prog.Hide()
-				a.startMonitor(envVars, cmdParts)
+				a.startMonitor(result)
 			})
 		}()
 		return
 	}
 
-	a.showCleanPersistenceDialog(envVars, cmdParts)
+	a.showCleanPersistenceDialog(result)
 }
 
-func (a *App) showCleanPersistenceDialog(envVars string, cmdParts []string) {
+func (a *App) showCleanPersistenceDialog(result *docker.BuildResult) {
 	titleLabel := widget.NewRichText(&widget.TextSegment{
 		Text: "Clean All Persistence",
 		Style: widget.RichTextStyle{
@@ -143,12 +144,12 @@ func (a *App) showCleanPersistenceDialog(envVars string, cmdParts []string) {
 	yesBtn.OnTapped = func() {
 		pop.Hide()
 		a.cleanPersistence = true
-		a.startMonitor(envVars, cmdParts)
+		a.startMonitor(result)
 	}
 	noBtn.OnTapped = func() {
 		pop.Hide()
 		a.cleanPersistence = false
-		a.startMonitor(envVars, cmdParts)
+		a.startMonitor(result)
 	}
 
 	pop.Show()
@@ -161,16 +162,16 @@ func (a *App) handleConfigImport(filePath string) {
 		return
 	}
 
-	envVars, cmdParts, err := a.buildDockerCommand()
+	result, err := a.buildDockerCommand()
 	if err != nil {
 		showErrorDialog(err.Error(), a.window)
 		return
 	}
 
-	a.promptCleanPersistenceThenMonitor(envVars, cmdParts)
+	a.promptCleanPersistenceThenMonitor(result)
 }
 
-func (a *App) startMonitor(envVars string, cmdParts []string) {
+func (a *App) startMonitor(result *docker.BuildResult) {
 	visibleServices := a.buildVisibleServicesList()
 	if a.cleanPersistence {
 		prog := showProgressModal("Cleaning Persistence",
@@ -181,10 +182,10 @@ func (a *App) startMonitor(envVars string, cmdParts []string) {
 			}
 			fyne.Do(func() {
 				prog.Hide()
-				a.ShowMonitorScreen(envVars, cmdParts, visibleServices)
+				a.ShowMonitorScreen(result, visibleServices)
 			})
 		}()
 		return
 	}
-	a.ShowMonitorScreen(envVars, cmdParts, visibleServices)
+	a.ShowMonitorScreen(result, visibleServices)
 }

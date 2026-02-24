@@ -111,12 +111,12 @@ func (a *App) ShowServicesScreen(resolver *graph.DependencyResolver) {
 		a.pendingBackend = backend
 		a.pendingFrontend = frontend
 
-		envVars, cmdParts, err := a.buildDockerCommand()
+		result, err := a.buildDockerCommand()
 		if err != nil {
 			showErrorDialog(err.Error(), a.window)
 			return
 		}
-		a.promptCleanPersistenceThenMonitor(envVars, cmdParts)
+		a.promptCleanPersistenceThenMonitor(result)
 	})
 	startBtn.Importance = widget.HighImportance
 

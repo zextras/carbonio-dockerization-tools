@@ -141,10 +141,21 @@ func main() {
 	for uiName, imgConfig := range userConfig.Carbonio.Frontend {
 		builder.SetFrontendImage(uiName, imgConfig)
 	}
-	envVars, cmdParts, err := builder.Build()
+	result, err := builder.Build()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: Failed to build command: %v\n", err)
 		os.Exit(1)
+	}
+
+	fmt.Fprintln(os.Stderr, "Pulling latest images...")
+	pullChan := make(chan string, 100)
+	go func() {
+		for line := range pullChan {
+			fmt.Println(line)
+		}
+	}()
+	if err := executor.Execute(result.EnvVars, result.PullCmd, pullChan); err != nil {
+		log.Printf("Pull step error (non-fatal): %v", err)
 	}
 
 	fmt.Fprintln(os.Stderr, "Starting Carbonio services...")
@@ -154,7 +165,7 @@ func main() {
 	outputChan := make(chan string, 100)
 
 	go func() {
-		err := executor.ExecuteWithSignalHandler(envVars, cmdParts, outputChan, true)
+		err := executor.ExecuteWithSignalHandler(result.EnvVars, result.UpCmd, outputChan, true)
 		if err != nil {
 			log.Printf("Docker execution error: %v", err)
 		}

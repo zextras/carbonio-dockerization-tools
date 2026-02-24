@@ -114,7 +114,7 @@ func (a *App) loadConfigFromFile(filePath string) error {
 	return nil
 }
 
-func (a *App) buildDockerCommand() (string, []string, error) {
+func (a *App) buildDockerCommand() (*docker.BuildResult, error) {
 	builder := docker.NewCommandBuilder(a.workDir, a.edition, a.parsedConfig)
 	for serviceName, imgConfig := range a.pendingBackend {
 		builder.SetBackendService(serviceName, imgConfig)

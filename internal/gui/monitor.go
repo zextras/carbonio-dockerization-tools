@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"carbonio-dockerization-tools/internal/docker"
 	"carbonio-dockerization-tools/internal/parser"
 	"carbonio-dockerization-tools/internal/provisioner"
 	"context"
@@ -82,7 +83,7 @@ type monitoredService struct {
 	toggleBtn *widget.Button
 }
 
-func (a *App) ShowMonitorScreen(envVars string, cmdParts []string, visibleServices []string) {
+func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []string) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	states := make(map[string]serviceState)
@@ -428,11 +429,30 @@ func (a *App) ShowMonitorScreen(envVars string, cmdParts []string, visibleServic
 		updateGlobalStatus()
 	}
 
-	// Start docker compose
+	// Start docker compose: pull (visible in monitor as orange "Pulling"), then up
 	outputChan := make(chan string, 100)
 
 	go func() {
-		err := a.executor.Execute(envVars, cmdParts, outputChan)
+		// Pull step: updates remote images, ignores failures for local/build-only.
+		// Only forward "Pulling"/"Pulled" lines to the monitor (for orange state);
+		// skip errors and download progress to avoid false error states.
+		pullChan := make(chan string, 100)
+		go func() {
+			for line := range pullChan {
+				lower := strings.ToLower(line)
+				if strings.Contains(lower, "pulling") || strings.Contains(lower, "pulled") {
+					outputChan <- line
+				}
+			}
+		}()
+		log.Println("Running docker compose pull...")
+		if err := a.executor.Execute(result.EnvVars, result.PullCmd, pullChan); err != nil {
+			log.Printf("Pull step error (non-fatal): %v", err)
+		}
+
+		// Up step: start services with locally available images
+		log.Println("Running docker compose up...")
+		err := a.executor.Execute(result.EnvVars, result.UpCmd, outputChan)
 		if err != nil {
 			log.Printf("Docker execution error: %v", err)
 		}
