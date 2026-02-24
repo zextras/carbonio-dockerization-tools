@@ -22,6 +22,7 @@ services:
       - "8080:8080"
       - "7025:7025"
       - "7143:7143"
+      - "5005:5005"
     environment:
       - LDAP_URL=ldap://carbonio-openldap:1389
       - LDAP_ROOT_PASSWORD=qh6hWZvc
@@ -37,11 +38,11 @@ services:
       - mailbox_index:/opt/zextras/index
       - mailbox_store:/opt/zextras/store
     healthcheck:
-      interval: 60s
-      retries: 10
-      start_period: 20s
+      interval: 10s
+      retries: 100
+      start_period: 50s
       test: curl --fail --silent localhost:8080/service/health/ready || exit 1
-      timeout: 10s
+      timeout: 20s
     depends_on:
       event-listener:
         condition: service_started
@@ -122,7 +123,7 @@ services:
       - carbonio-mailbox
 
   consul:
-    image: hashicorp/consul:1.22
+    image: hashicorp/consul:1.22.3
     ports:
       - "8500:8500"
       - "8600:8600/udp"
@@ -318,8 +319,7 @@ services:
         condition: service_started
 
   carbonio-composed-ui:
-    # image: carbonio-composed-ui:local
-    hostname: docker.carbonio-proxy.localhost
+    hostname: proxy.carbonio.localhost
     build:
       context: ./composed-ui
       dockerfile: Dockerfile
@@ -363,6 +363,9 @@ services:
       - "80:80"
       - "6071:6071"
       - "9090:9090"
+    volumes:
+      - ./ssl/nginx.key:/opt/zextras/conf/nginx.key
+      - ./ssl/nginx.crt:/opt/zextras/conf/nginx.crt
     depends_on:
       traefik:
         condition: service_started

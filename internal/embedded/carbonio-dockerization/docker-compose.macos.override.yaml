@@ -73,6 +73,3 @@ services:
 
   carbonio-ws-collaboration:
     platform: linux/amd64
-
-  carbonio-videorecorder:
-    platform: linux/amd64

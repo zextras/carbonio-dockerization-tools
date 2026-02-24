@@ -26,6 +26,7 @@ services:
       - mailbox_data_advanced:/opt/zextras/data/mailbox
       - mailbox_index_advanced:/opt/zextras/index
       - mailbox_store_advanced:/opt/zextras/store
+      - mailbox_conf_zextras_advanced:/opt/zextras/conf/zextras
 
   carbonio-postgres:
     volumes:
@@ -158,6 +159,7 @@ volumes:
   mailbox_data_advanced:
   mailbox_index_advanced:
   mailbox_store_advanced:
+  mailbox_conf_zextras_advanced:
   app-volume-advanced:
   postgres_data_advanced:
   storages_data_advanced:
