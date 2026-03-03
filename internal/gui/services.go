@@ -106,6 +106,20 @@ func (a *App) ShowServicesScreen(resolver *graph.DependencyResolver) {
 	frontendSection := newSectionHeader("Composed UI")
 	frontendList := buildServiceList(frontendItems, nil, a.window)
 
+	copyBtn := widget.NewButton("Copy startup command", func() {
+		backend, frontend := collectSelections(backendItems, frontendItems, a.edition)
+		a.pendingBackend = backend
+		a.pendingFrontend = frontend
+
+		result, err := a.buildDockerCommand()
+		if err != nil {
+			showErrorDialog(err.Error(), a.window)
+			return
+		}
+		a.window.Clipboard().SetContent(result.StartupCommand())
+		showSuccessDialog("Copied", "Startup command copied to clipboard.", a.window)
+	})
+
 	startBtn := widget.NewButton("Start", func() {
 		backend, frontend := collectSelections(backendItems, frontendItems, a.edition)
 		a.pendingBackend = backend
@@ -185,6 +199,7 @@ func (a *App) ShowServicesScreen(resolver *graph.DependencyResolver) {
 		wideButton(backBtn, 120),
 		wideButton(exportBtn, 150),
 		layout.NewSpacer(),
+		wideButton(copyBtn, 160),
 		wideButton(startBtn, 120),
 	)))
 

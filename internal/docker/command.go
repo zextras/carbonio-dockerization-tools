@@ -88,3 +88,13 @@ func (b *CommandBuilder) Build() (*BuildResult, error) {
 		UpCmd:   upCmd,
 	}, nil
 }
+
+// StartupCommand returns the full docker compose up command as a single
+// copy-pasteable string with environment variables prepended.
+func (r *BuildResult) StartupCommand() string {
+	cmd := strings.Join(r.UpCmd, " ")
+	if r.EnvVars != "" {
+		return r.EnvVars + " " + cmd
+	}
+	return cmd
+}

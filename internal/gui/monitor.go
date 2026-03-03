@@ -311,6 +311,11 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 		}()
 	}
 
+	copyBtn := widget.NewButton("Copy startup command", func() {
+		a.window.Clipboard().SetContent(result.StartupCommand())
+		showSuccessDialog("Copied", "Startup command copied to clipboard.", a.window)
+	})
+
 	stopBtn := widget.NewButton("Stop & Cleanup", func() {
 		doCleanup()
 	})
@@ -345,6 +350,7 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 	bottomSection := container.NewPadded(container.NewPadded(container.NewHBox(
 		wideButton(exportBtn, 150),
 		layout.NewSpacer(),
+		wideButton(copyBtn, 160),
 		wideButton(stopBtn, 150),
 	)))
 
