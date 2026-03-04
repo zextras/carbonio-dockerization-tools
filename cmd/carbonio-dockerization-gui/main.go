@@ -3,6 +3,7 @@ package main
 import (
 	"carbonio-dockerization-tools/internal/embedded"
 	"carbonio-dockerization-tools/internal/gui"
+	"carbonio-dockerization-tools/internal/logutil"
 	"carbonio-dockerization-tools/internal/preflight"
 	"fmt"
 	"log"
@@ -28,7 +29,8 @@ func main() {
 	logDir := filepath.Join(os.Getenv("HOME"), ".local", "state", "carbonio-dockerization")
 	os.MkdirAll(logDir, 0755)
 	logPath := filepath.Join(logDir, "gui.log")
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	logutil.TrimLogFile(logPath)
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to open log file: %v\n", err)
 	} else {
@@ -126,7 +128,7 @@ func continueStartup(w fyne.Window, logPath string, updateStep func(string)) {
 		}
 
 		workDir := extractor.GetWorkDir()
-		guiApp := gui.NewApp(workDir, logPath, w)
+		guiApp := gui.NewApp(workDir, logPath, version, w)
 
 		fyne.Do(func() { updateStep("Cleaning up previous sessions...") })
 		guiApp.RunInitialCleanup()

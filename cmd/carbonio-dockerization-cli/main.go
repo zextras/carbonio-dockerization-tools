@@ -4,12 +4,14 @@ import (
 	"carbonio-dockerization-tools/internal/config"
 	"carbonio-dockerization-tools/internal/docker"
 	"carbonio-dockerization-tools/internal/embedded"
+	"carbonio-dockerization-tools/internal/logutil"
 	"carbonio-dockerization-tools/internal/parser"
 	"carbonio-dockerization-tools/internal/preflight"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 var (
@@ -46,13 +48,19 @@ func main() {
 	// Setup logging
 	logDir := filepath.Join(os.Getenv("HOME"), ".local", "state", "carbonio-dockerization")
 	os.MkdirAll(logDir, 0755)
-	logFile, err := os.OpenFile(filepath.Join(logDir, "cli.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	cliLogPath := filepath.Join(logDir, "cli.log")
+	logutil.TrimLogFile(cliLogPath)
+	logFile, err := os.OpenFile(cliLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to open log file: %v\n", err)
 	} else {
 		defer logFile.Close()
 		log.SetOutput(logFile)
 		log.SetFlags(log.LstdFlags | log.Lshortfile)
+	}
+
+	if !strings.HasSuffix(configFile, ".carbonio-dockerization") {
+		fmt.Fprintln(os.Stderr, "Warning: config file does not have .carbonio extension. Consider renaming it.")
 	}
 
 	log.Println("=== Starting Carbonio Docker CLI ===")
@@ -115,6 +123,12 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Warn if config was created with a different app version
+	configVersion := userConfig.AppVersion
+	if configVersion != "" && configVersion != version && configVersion != "dev" && version != "dev" {
+		fmt.Fprintf(os.Stderr, "Warning: config was created with version %s, but you are running version %s. It may not be fully compatible.\n", configVersion, version)
 	}
 
 	// Clean conflicting volumes from the other edition if they exist

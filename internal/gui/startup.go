@@ -63,6 +63,6 @@ func (a *App) showFileOpen() {
 		path := reader.URI().Path()
 		a.handleConfigImport(path)
 	}, a.window)
-	fd.SetFilter(storage.NewExtensionFileFilter([]string{".yaml", ".yml"}))
+	fd.SetFilter(storage.NewExtensionFileFilter([]string{".carbonio-dockerization"}))
 	fd.Show()
 }

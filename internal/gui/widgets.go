@@ -407,6 +407,58 @@ func ShowLoadingScreen(win fyne.Window) func(step string) {
 	}
 }
 
+func showVersionMismatchDialog(configVersion, appVersion string, win fyne.Window, onContinue func(), onGoBack func()) {
+	titleLabel := widget.NewRichText(&widget.TextSegment{
+		Text: "Version Mismatch",
+		Style: widget.RichTextStyle{
+			SizeName:  theme.SizeNameSubHeadingText,
+			TextStyle: fyne.TextStyle{Bold: true},
+		},
+	})
+	messageLabel := widget.NewLabel(fmt.Sprintf(
+		"This configuration was created with version %s, but you are running version %s. It may not be fully compatible.",
+		configVersion, appVersion,
+	))
+	messageLabel.Wrapping = fyne.TextWrapWord
+
+	goBackBtn := widget.NewButton("Go Back", nil)
+	continueBtn := widget.NewButton("Continue", nil)
+	continueBtn.Importance = widget.HighImportance
+
+	minWidth := canvas.NewRectangle(color.Transparent)
+	minWidth.SetMinSize(fyne.NewSize(500, 0))
+
+	bg := canvas.NewRectangle(theme.OverlayBackgroundColor())
+	bg.CornerRadius = 8
+
+	inner := container.NewVBox(
+		minWidth,
+		titleLabel,
+		widget.NewSeparator(),
+		messageLabel,
+		widget.NewSeparator(),
+		container.NewGridWithColumns(2, goBackBtn, continueBtn),
+	)
+
+	card := container.NewStack(bg, container.NewPadded(inner))
+	pop := widget.NewModalPopUp(card, win.Canvas())
+
+	goBackBtn.OnTapped = func() {
+		pop.Hide()
+		if onGoBack != nil {
+			onGoBack()
+		}
+	}
+	continueBtn.OnTapped = func() {
+		pop.Hide()
+		if onContinue != nil {
+			onContinue()
+		}
+	}
+
+	pop.Show()
+}
+
 func NewStatusBadge(state string) *fyne.Container {
 	var c color.Color
 	switch state {

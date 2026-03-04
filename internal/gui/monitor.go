@@ -10,6 +10,7 @@ import (
 	"image/color"
 	"log"
 	"net/url"
+	"os"
 	"os/exec"
 	"regexp"
 	"sort"
@@ -259,15 +260,17 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 			if writer == nil {
 				return
 			}
+			writerPath := writer.URI().Path()
 			writer.Close()
-			path := writer.URI().Path()
+			os.Remove(writerPath)
+			path := writerPath + ".carbonio-dockerization"
 			if saveErr := a.saveConfig(path); saveErr != nil {
 				showErrorDialog(saveErr.Error(), a.window)
 				return
 			}
 			showSuccessDialog("Config Exported", fmt.Sprintf("Saved to:\n%s", path), a.window)
 		}, a.window)
-		fd.SetFileName("carbonio-config.yaml")
+		fd.SetFileName("carbonio-config")
 		fd.Show()
 	})
 

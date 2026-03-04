@@ -162,6 +162,19 @@ func (a *App) handleConfigImport(filePath string) {
 		return
 	}
 
+	configVersion := a.userConfig.AppVersion
+	if configVersion != "" && configVersion != a.appVersion && configVersion != "dev" && a.appVersion != "dev" {
+		showVersionMismatchDialog(configVersion, a.appVersion, a.window,
+			func() { a.proceedWithImport() },
+			func() { a.ShowStartupScreen() },
+		)
+		return
+	}
+
+	a.proceedWithImport()
+}
+
+func (a *App) proceedWithImport() {
 	result, err := a.buildDockerCommand()
 	if err != nil {
 		showErrorDialog(err.Error(), a.window)

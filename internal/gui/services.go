@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image/color"
 	"log"
+	"os"
 	"sort"
 	"strings"
 
@@ -147,15 +148,17 @@ func (a *App) ShowServicesScreen(resolver *graph.DependencyResolver) {
 			if writer == nil {
 				return
 			}
+			writerPath := writer.URI().Path()
 			writer.Close()
-			path := writer.URI().Path()
+			os.Remove(writerPath)
+			path := writerPath + ".carbonio-dockerization"
 			if saveErr := a.saveConfig(path); saveErr != nil {
 				showErrorDialog(saveErr.Error(), a.window)
 				return
 			}
 			showSuccessDialog("Config Exported", fmt.Sprintf("Saved to:\n%s", path), a.window)
 		}, a.window)
-		fd.SetFileName("carbonio-config.yaml")
+		fd.SetFileName("carbonio-config")
 		fd.Show()
 	})
 
