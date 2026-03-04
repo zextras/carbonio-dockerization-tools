@@ -1,8 +1,8 @@
 package config
 
 type UserConfig struct {
-	Version  string         `yaml:"version"`
-	Carbonio CarbonioConfig `yaml:"carbonio"`
+	AppVersion string         `yaml:"app_version"`
+	Carbonio   CarbonioConfig `yaml:"carbonio"`
 }
 
 type ImageConfig struct {

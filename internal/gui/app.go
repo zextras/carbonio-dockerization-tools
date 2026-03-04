@@ -19,6 +19,7 @@ type App struct {
 	window           fyne.Window
 	workDir          string
 	logPath          string
+	appVersion       string
 	parsedConfig     *parser.ParsedConfig
 	userConfig       *config.UserConfig
 	edition          parser.Edition
@@ -28,12 +29,13 @@ type App struct {
 	cleanPersistence bool
 }
 
-func NewApp(workDir string, logPath string, window fyne.Window) *App {
+func NewApp(workDir string, logPath string, appVersion string, window fyne.Window) *App {
 	a := &App{
-		window:   window,
-		workDir:  workDir,
-		logPath:  logPath,
-		executor: docker.NewExecutor(workDir),
+		window:     window,
+		workDir:    workDir,
+		logPath:    logPath,
+		appVersion: appVersion,
+		executor:   docker.NewExecutor(workDir),
 	}
 	a.setupMainMenu()
 	return a
@@ -137,6 +139,7 @@ func (a *App) saveConfig(filePath string) error {
 		string(a.edition),
 		a.pendingBackend,
 		a.pendingFrontend,
+		a.appVersion,
 	)
 	return config.ExportConfig(filePath, userConfig)
 }

@@ -16,9 +16,9 @@ func ExportConfig(filePath string, config *UserConfig) error {
 	}
 	return nil
 }
-func CreateUserConfig(edition string, backend map[string]*ImageConfig, frontend map[string]*ImageConfig) *UserConfig {
+func CreateUserConfig(edition string, backend map[string]*ImageConfig, frontend map[string]*ImageConfig, appVersion string) *UserConfig {
 	return &UserConfig{
-		Version: "1.0",
+		AppVersion: appVersion,
 		Carbonio: CarbonioConfig{
 			Edition:  edition,
 			Backend:  backend,
