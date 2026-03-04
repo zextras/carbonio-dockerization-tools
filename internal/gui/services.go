@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image/color"
 	"log"
+	"os"
 	"sort"
 	"strings"
 
@@ -147,8 +148,10 @@ func (a *App) ShowServicesScreen(resolver *graph.DependencyResolver) {
 			if writer == nil {
 				return
 			}
+			writerPath := writer.URI().Path()
 			writer.Close()
-			path := writer.URI().Path() + ".carbonio-dockerization"
+			os.Remove(writerPath)
+			path := writerPath + ".carbonio-dockerization"
 			if saveErr := a.saveConfig(path); saveErr != nil {
 				showErrorDialog(saveErr.Error(), a.window)
 				return
