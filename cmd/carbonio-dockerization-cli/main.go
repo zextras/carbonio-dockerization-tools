@@ -148,7 +148,12 @@ func main() {
 	}
 
 	// Build and execute docker compose
-	builder := docker.NewCommandBuilder(workDir, edition, parsedConfig)
+	natIP, err := preflight.DetectNATIP()
+	if err != nil {
+		log.Printf("Warning: failed to detect NAT IP: %v", err)
+	}
+
+	builder := docker.NewCommandBuilder(workDir, edition, parsedConfig, natIP)
 	for serviceName, imgConfig := range userConfig.Carbonio.Backend {
 		builder.SetBackendService(serviceName, imgConfig)
 	}
