@@ -10,6 +10,7 @@ import (
 type CommandBuilder struct {
 	workDir         string
 	edition         parser.Edition
+	natIP           string
 	backendServices map[string]*config.ImageConfig
 	frontendImages  map[string]*config.ImageConfig
 	parsedConfig    *parser.ParsedConfig
@@ -22,10 +23,11 @@ type BuildResult struct {
 	UpCmd   []string // docker compose up --build (uses whatever is locally available)
 }
 
-func NewCommandBuilder(workDir string, edition parser.Edition, parsedConfig *parser.ParsedConfig) *CommandBuilder {
+func NewCommandBuilder(workDir string, edition parser.Edition, parsedConfig *parser.ParsedConfig, natIP string) *CommandBuilder {
 	return &CommandBuilder{
 		workDir:         workDir,
 		edition:         edition,
+		natIP:           natIP,
 		backendServices: make(map[string]*config.ImageConfig),
 		frontendImages:  make(map[string]*config.ImageConfig),
 		parsedConfig:    parsedConfig,
@@ -58,6 +60,10 @@ func (b *CommandBuilder) Build() (*BuildResult, error) {
 			selectedServices = append(selectedServices, autoIncludedName)
 		}
 	}
+	if b.natIP != "" {
+		envVars = append(envVars, fmt.Sprintf("NAT_IP=%s", b.natIP))
+	}
+
 	for uiName, ui := range b.parsedConfig.FrontendImages {
 		imgConfig, exists := b.frontendImages[uiName]
 		if !exists || imgConfig == nil || imgConfig.Tag == "disabled" {

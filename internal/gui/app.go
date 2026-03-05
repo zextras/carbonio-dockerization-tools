@@ -20,6 +20,7 @@ type App struct {
 	workDir          string
 	logPath          string
 	appVersion       string
+	natIP            string
 	parsedConfig     *parser.ParsedConfig
 	userConfig       *config.UserConfig
 	edition          parser.Edition
@@ -29,12 +30,13 @@ type App struct {
 	cleanPersistence bool
 }
 
-func NewApp(workDir string, logPath string, appVersion string, window fyne.Window) *App {
+func NewApp(workDir string, logPath string, appVersion string, natIP string, window fyne.Window) *App {
 	a := &App{
 		window:     window,
 		workDir:    workDir,
 		logPath:    logPath,
 		appVersion: appVersion,
+		natIP:      natIP,
 		executor:   docker.NewExecutor(workDir),
 	}
 	a.setupMainMenu()
@@ -117,7 +119,7 @@ func (a *App) loadConfigFromFile(filePath string) error {
 }
 
 func (a *App) buildDockerCommand() (*docker.BuildResult, error) {
-	builder := docker.NewCommandBuilder(a.workDir, a.edition, a.parsedConfig)
+	builder := docker.NewCommandBuilder(a.workDir, a.edition, a.parsedConfig, a.natIP)
 	for serviceName, imgConfig := range a.pendingBackend {
 		builder.SetBackendService(serviceName, imgConfig)
 	}

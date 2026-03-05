@@ -64,3 +64,18 @@ func CheckRegistryConnectivity() error {
 	defer conn.Close()
 	return nil
 }
+
+// DetectNATIP returns the local IP address used to reach the registry host.
+// This is typically the VPN interface IP, since the registry is only reachable via VPN.
+func DetectNATIP() (string, error) {
+	conn, err := net.Dial("udp", RegistryHost)
+	if err != nil {
+		return "", fmt.Errorf("failed to detect NAT IP: %w", err)
+	}
+	defer conn.Close()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	ip := localAddr.IP.String()
+	log.Printf("Detected NAT IP: %s", ip)
+	return ip, nil
+}

@@ -128,7 +128,12 @@ func continueStartup(w fyne.Window, logPath string, updateStep func(string)) {
 		}
 
 		workDir := extractor.GetWorkDir()
-		guiApp := gui.NewApp(workDir, logPath, version, w)
+		natIP, err := preflight.DetectNATIP()
+		if err != nil {
+			log.Printf("Warning: failed to detect NAT IP: %v", err)
+		}
+
+		guiApp := gui.NewApp(workDir, logPath, version, natIP, w)
 
 		fyne.Do(func() { updateStep("Cleaning up previous sessions...") })
 		guiApp.RunInitialCleanup()
