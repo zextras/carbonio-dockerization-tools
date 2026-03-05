@@ -472,6 +472,10 @@ services:
     image: ${CARBONIO_VIDEOSERVER_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-videoserver-ce:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
     platform: linux/amd64
     restart: unless-stopped
+    environment:
+      - NAT_IP=${NAT_IP:-}
+    ports:
+      - "20000-20200:20000-20200/udp"
     volumes:
       - shared-videoserver:/var/lib/videoserver
     depends_on:
