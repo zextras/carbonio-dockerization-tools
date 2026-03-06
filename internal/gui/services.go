@@ -293,16 +293,13 @@ func buildFrontendItems(parsedConfig *parser.ParsedConfig) []*serviceItem {
 
 func buildServiceList(items []*serviceItem, resolver *graph.DependencyResolver, win fyne.Window) *fyne.Container {
 	rows := container.NewVBox()
+	checks := make(map[string]*widget.Check)
 
 	for _, item := range items {
 		item := item // capture
 
-		check := widget.NewCheck("", func(checked bool) {
-			item.selected = checked
-			if checked && item.isBackend && resolver != nil {
-				autoSelectDeps(item, items, resolver)
-			}
-		})
+		check := widget.NewCheck("", nil)
+		checks[item.name] = check
 		check.SetChecked(item.selected)
 		if item.isRequired {
 			check.SetChecked(true)
@@ -403,7 +400,52 @@ func buildServiceList(items []*serviceItem, resolver *graph.DependencyResolver, 
 		}(item, tagSelect)
 	}
 
+	// Wire up OnChanged handlers now that all checks are in the map
+	for _, item := range items {
+		item := item // capture
+		chk := checks[item.name]
+		chk.OnChanged = func(checked bool) {
+			item.selected = checked
+			if item.isBackend && resolver != nil {
+				propagateDependencyChange(item, checked, items, checks, resolver)
+			}
+		}
+	}
+
 	return rows
+}
+
+// propagateDependencyChange handles bidirectional dependency propagation:
+// - On select: auto-select all transitive dependencies
+// - On deselect: auto-deselect all services that transitively depend on this one
+func propagateDependencyChange(item *serviceItem, checked bool, allItems []*serviceItem, checks map[string]*widget.Check, resolver *graph.DependencyResolver) {
+	if checked {
+		// Select all dependencies (what this service needs)
+		deps := resolver.ResolveDependencies(item.name)
+		for _, depName := range deps {
+			for _, other := range allItems {
+				if other.name == depName && !other.selected {
+					other.selected = true
+					if chk, ok := checks[other.name]; ok {
+						chk.SetChecked(true)
+					}
+				}
+			}
+		}
+	} else {
+		// Deselect all dependents (services that need this one)
+		dependents := resolver.ResolveDependents(item.name)
+		for _, depName := range dependents {
+			for _, other := range allItems {
+				if other.name == depName && other.selected && !other.isRequired {
+					other.selected = false
+					if chk, ok := checks[other.name]; ok {
+						chk.SetChecked(false)
+					}
+				}
+			}
+		}
+	}
 }
 
 func showCustomDialog(item *serviceItem, tagSelect *widget.Select, nameLabel *widget.RichText, customLabel *widget.RichText, resetBtn *widget.Button, win fyne.Window) {
@@ -555,17 +597,6 @@ func findProbeImage(items []*serviceItem) string {
 		}
 	}
 	return ""
-}
-
-func autoSelectDeps(item *serviceItem, allItems []*serviceItem, resolver *graph.DependencyResolver) {
-	deps := resolver.ResolveDependencies(item.name)
-	for _, depName := range deps {
-		for _, other := range allItems {
-			if other.name == depName {
-				other.selected = true
-			}
-		}
-	}
 }
 
 func collectSelections(backendItems, frontendItems []*serviceItem, edition parser.Edition) (map[string]*config.ImageConfig, map[string]*config.ImageConfig) {
