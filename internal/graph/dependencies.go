@@ -38,7 +38,6 @@ func (r *DependencyResolver) resolveDependenciesRecursive(serviceName string, re
 	}
 }
 
-// ResolveDependents returns all services that transitively depend on serviceName
 // ResolveDependents returns all services that transitively depend on serviceName.
 func (r *DependencyResolver) ResolveDependents(serviceName string) []string {
 	resolved := make(map[string]bool)
