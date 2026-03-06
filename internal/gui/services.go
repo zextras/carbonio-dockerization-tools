@@ -102,10 +102,99 @@ func (a *App) ShowServicesScreen(resolver *graph.DependencyResolver) {
 	}
 
 	backendSection := newSectionHeader("Backend Services")
-	backendList := buildServiceList(backendItems, resolver, a.window)
+	backendResult := buildServiceList(backendItems, resolver, a.window)
 
 	frontendSection := newSectionHeader("Composed UI")
-	frontendList := buildServiceList(frontendItems, nil, a.window)
+	frontendResult := buildServiceList(frontendItems, nil, a.window)
+
+	// Toolbar: Select All, Deselect All, Hide uncustomizable
+	selectAllBtn := widget.NewButton("Select All", func() {
+		for _, item := range backendItems {
+			if !item.selected && !item.isRequired {
+				item.selected = true
+				if chk, ok := backendResult.checks[item.name]; ok {
+					chk.SetChecked(true)
+				}
+			}
+		}
+		for _, item := range frontendItems {
+			if !item.selected && !item.isRequired {
+				item.selected = true
+				if chk, ok := frontendResult.checks[item.name]; ok {
+					chk.SetChecked(true)
+				}
+			}
+		}
+	})
+
+	deselectAllBtn := widget.NewButton("Deselect All", func() {
+		for _, item := range backendItems {
+			if item.selected && !item.isRequired {
+				item.selected = false
+				if chk, ok := backendResult.checks[item.name]; ok {
+					chk.SetChecked(false)
+				}
+			}
+		}
+		for _, item := range frontendItems {
+			if item.selected && !item.isRequired {
+				item.selected = false
+				if chk, ok := frontendResult.checks[item.name]; ok {
+					chk.SetChecked(false)
+				}
+			}
+		}
+	})
+
+	allItems := append(backendItems, frontendItems...)
+	allRows := make(map[string]*fyne.Container)
+	for k, v := range backendResult.rows {
+		allRows[k] = v
+	}
+	for k, v := range frontendResult.rows {
+		allRows[k] = v
+	}
+
+	hideCheck := widget.NewCheck("Hide uncustomizable", func(checked bool) {
+		for _, item := range allItems {
+			if isUncustomizable(item) {
+				if row, ok := allRows[item.name]; ok {
+					if checked {
+						row.Hide()
+					} else {
+						row.Show()
+					}
+				}
+			}
+		}
+	})
+	hideCheck.SetChecked(true)
+	// Apply initial hide
+	for _, item := range allItems {
+		if isUncustomizable(item) {
+			if row, ok := allRows[item.name]; ok {
+				row.Hide()
+			}
+		}
+	}
+
+	toolbarContent := container.NewHBox(
+		selectAllBtn,
+		deselectAllBtn,
+		layout.NewSpacer(),
+		hideCheck,
+	)
+	toolbarBorder := canvas.NewRectangle(color.Transparent)
+	toolbarBorder.StrokeColor = theme.PrimaryColor()
+	toolbarBorder.StrokeWidth = 1.5
+	toolbarBorder.CornerRadius = 6
+	padH := canvas.NewRectangle(color.Transparent)
+	padH.SetMinSize(fyne.NewSize(8, 0))
+	padV := canvas.NewRectangle(color.Transparent)
+	padV.SetMinSize(fyne.NewSize(0, 6))
+	toolbarInner := container.NewBorder(padV, padV, padH, padH, toolbarContent)
+	toolbarBox := container.NewStack(toolbarBorder, toolbarInner)
+	toolbar := container.NewGridWithColumns(2, toolbarBox, layout.NewSpacer())
 
 	copyBtn := widget.NewButton("Copy startup command", func() {
 		backend, frontend := collectSelections(backendItems, frontendItems, a.edition)
@@ -191,13 +280,13 @@ func (a *App) ShowServicesScreen(resolver *graph.DependencyResolver) {
 
 	scrollContent := container.NewVBox(
 		backendSection,
-		backendList,
+		backendResult.container,
 		widget.NewSeparator(),
 		frontendSection,
-		frontendList,
+		frontendResult.container,
 	)
 
-	topSection := container.NewPadded(container.NewPadded(container.NewVBox(titleRow, editionSubtitle, description, widget.NewSeparator())))
+	topSection := container.NewPadded(container.NewPadded(container.NewVBox(titleRow, editionSubtitle, description, toolbar, widget.NewSeparator())))
 	bottomSection := container.NewPadded(container.NewPadded(container.NewHBox(
 		wideButton(backBtn, 120),
 		wideButton(exportBtn, 150),
@@ -291,18 +380,30 @@ func buildFrontendItems(parsedConfig *parser.ParsedConfig) []*serviceItem {
 	return append(required, optional...)
 }
 
-func buildServiceList(items []*serviceItem, resolver *graph.DependencyResolver, win fyne.Window) *fyne.Container {
-	rows := container.NewVBox()
+type serviceListResult struct {
+	container *fyne.Container
+	checks    map[string]*widget.Check
+	rows      map[string]*fyne.Container
+}
+
+func isUncustomizable(item *serviceItem) bool {
+	if !item.isRequired {
+		return false
+	}
+	externalImage := !IsOurRegistry(item.imageBase)
+	return item.tagLocked || externalImage
+}
+
+func buildServiceList(items []*serviceItem, resolver *graph.DependencyResolver, win fyne.Window) *serviceListResult {
+	rowsContainer := container.NewVBox()
+	checks := make(map[string]*widget.Check)
+	rowMap := make(map[string]*fyne.Container)
 
 	for _, item := range items {
 		item := item // capture
 
-		check := widget.NewCheck("", func(checked bool) {
-			item.selected = checked
-			if checked && item.isBackend && resolver != nil {
-				autoSelectDeps(item, items, resolver)
-			}
-		})
+		check := widget.NewCheck("", nil)
+		checks[item.name] = check
 		check.SetChecked(item.selected)
 		if item.isRequired {
 			check.SetChecked(true)
@@ -369,7 +470,8 @@ func buildServiceList(items []*serviceItem, resolver *graph.DependencyResolver, 
 		leftCol := container.NewHBox(check, nameLabel, customLabel)
 		rightCol := container.NewHBox(tagSelect, customBtn, resetBtn)
 		row := container.NewGridWithColumns(3, leftCol, rightCol, layout.NewSpacer())
-		rows.Add(row)
+		rowMap[item.name] = row
+		rowsContainer.Add(row)
 
 		// Fetch tags in background
 		go func(item *serviceItem, sel *widget.Select) {
@@ -403,7 +505,56 @@ func buildServiceList(items []*serviceItem, resolver *graph.DependencyResolver, 
 		}(item, tagSelect)
 	}
 
-	return rows
+	// Wire up OnChanged handlers now that all checks are in the map
+	for _, item := range items {
+		item := item // capture
+		chk := checks[item.name]
+		chk.OnChanged = func(checked bool) {
+			item.selected = checked
+			if item.isBackend && resolver != nil {
+				propagateDependencyChange(item, checked, items, checks, resolver)
+			}
+		}
+	}
+
+	return &serviceListResult{
+		container: rowsContainer,
+		checks:    checks,
+		rows:      rowMap,
+	}
+}
+
+// propagateDependencyChange handles bidirectional dependency propagation:
+// - On select: auto-select all transitive dependencies
+// - On deselect: auto-deselect all services that transitively depend on this one
+func propagateDependencyChange(item *serviceItem, checked bool, allItems []*serviceItem, checks map[string]*widget.Check, resolver *graph.DependencyResolver) {
+	if checked {
+		// Select all dependencies (what this service needs)
+		deps := resolver.ResolveDependencies(item.name)
+		for _, depName := range deps {
+			for _, other := range allItems {
+				if other.name == depName && !other.selected {
+					other.selected = true
+					if chk, ok := checks[other.name]; ok {
+						chk.SetChecked(true)
+					}
+				}
+			}
+		}
+	} else {
+		// Deselect all dependents (services that need this one)
+		dependents := resolver.ResolveDependents(item.name)
+		for _, depName := range dependents {
+			for _, other := range allItems {
+				if other.name == depName && other.selected && !other.isRequired {
+					other.selected = false
+					if chk, ok := checks[other.name]; ok {
+						chk.SetChecked(false)
+					}
+				}
+			}
+		}
+	}
 }
 
 func showCustomDialog(item *serviceItem, tagSelect *widget.Select, nameLabel *widget.RichText, customLabel *widget.RichText, resetBtn *widget.Button, win fyne.Window) {
@@ -555,17 +706,6 @@ func findProbeImage(items []*serviceItem) string {
 		}
 	}
 	return ""
-}
-
-func autoSelectDeps(item *serviceItem, allItems []*serviceItem, resolver *graph.DependencyResolver) {
-	deps := resolver.ResolveDependencies(item.name)
-	for _, depName := range deps {
-		for _, other := range allItems {
-			if other.name == depName {
-				other.selected = true
-			}
-		}
-	}
 }
 
 func collectSelections(backendItems, frontendItems []*serviceItem, edition parser.Edition) (map[string]*config.ImageConfig, map[string]*config.ImageConfig) {

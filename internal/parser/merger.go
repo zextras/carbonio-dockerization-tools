@@ -48,6 +48,9 @@ func ParseAll(workDir string, edition Edition) (*ParsedConfig, error) {
 					existing.DefaultImage = svc.DefaultImage
 					existing.DefaultTag = svc.DefaultTag
 				}
+				if len(svc.DependsOn) > 0 {
+					existing.DependsOn = svc.DependsOn
+				}
 			} else {
 				config.BackendServices[name] = svc
 			}

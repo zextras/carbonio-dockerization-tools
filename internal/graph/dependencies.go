@@ -37,6 +37,35 @@ func (r *DependencyResolver) resolveDependenciesRecursive(serviceName string, re
 		r.resolveDependenciesRecursive(dep, resolved)
 	}
 }
+
+// ResolveDependents returns all services that transitively depend on serviceName.
+func (r *DependencyResolver) ResolveDependents(serviceName string) []string {
+	resolved := make(map[string]bool)
+	r.resolveDependentsRecursive(serviceName, resolved)
+	result := make([]string, 0, len(resolved))
+	for name := range resolved {
+		if name != serviceName {
+			result = append(result, name)
+		}
+	}
+	return result
+}
+
+func (r *DependencyResolver) resolveDependentsRecursive(serviceName string, resolved map[string]bool) {
+	if resolved[serviceName] {
+		return
+	}
+	resolved[serviceName] = true
+	for name, svc := range r.services {
+		for _, dep := range svc.DependsOn {
+			if dep == serviceName {
+				r.resolveDependentsRecursive(name, resolved)
+				break
+			}
+		}
+	}
+}
+
 func (r *DependencyResolver) GetAllDependencies(serviceNames []string) []string {
 	allDeps := make(map[string]bool)
 	for _, name := range serviceNames {
