@@ -131,7 +131,7 @@ func (a *App) buildDockerCommand() (*docker.BuildResult, error) {
 
 func (a *App) RunInitialCleanup() {
 	log.Println("Running initial cleanup...")
-	if err := a.executor.CleanupAll(); err != nil {
+	if err := a.executor.CleanupAllQuiet(); err != nil {
 		log.Printf("Warning: cleanup failed: %v", err)
 	}
 }

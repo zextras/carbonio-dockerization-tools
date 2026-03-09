@@ -89,7 +89,7 @@ func buildStep1Section(win fyne.Window) fyne.CanvasObject {
 		},
 	})
 
-	intro := widget.NewLabel("Install Docker Desktop (macOS/Windows) or Docker Engine (Linux).")
+	intro := widget.NewLabel("Install Docker Desktop (macOS/Windows) or Docker Engine (Linux).\nOn macOS/Windows, make sure Docker Desktop is running before proceeding (it does not start automatically at boot by default).")
 	intro.Wrapping = fyne.TextWrapWord
 
 	desktopLink := newLink("Docker Desktop (macOS / Windows)", "https://www.docker.com/products/docker-desktop")

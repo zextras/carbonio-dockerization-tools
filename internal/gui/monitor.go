@@ -30,8 +30,10 @@ import (
 type serviceState int
 
 const (
-	stateUnknown serviceState = iota
-	statePulling
+	stateUnknown     serviceState = iota
+	stateWaitingPull              // queued for pull, waiting for semaphore slot
+	statePulling                  // actively downloading layers
+	statePulled                   // pull finished (downloaded or cached)
 	stateCreating
 	stateStarting
 	stateRunning
@@ -48,8 +50,12 @@ func stripANSI(s string) string {
 
 func (s serviceState) String() string {
 	switch s {
+	case stateWaitingPull:
+		return "WaitingPull"
 	case statePulling:
 		return "Pulling"
+	case statePulled:
+		return "Pulled"
 	case stateCreating:
 		return "Creating"
 	case stateStarting:
@@ -72,16 +78,17 @@ type dockerComposeStatus struct {
 }
 
 type monitoredService struct {
-	name      string
-	expanded  bool
-	cancel    context.CancelFunc
-	logEntry  *widget.Entry
-	logLines  int
-	logBox    *fyne.Container
-	dot       *canvas.Circle
-	pulseAnim *fyne.Animation
-	pulsing   bool
-	toggleBtn *widget.Button
+	name        string
+	expanded    bool
+	cancel      context.CancelFunc
+	logEntry    *widget.Entry
+	logLines    int
+	logBox      *fyne.Container
+	dot         *canvas.Circle
+	pulseAnim   *fyne.Animation
+	pulsing     bool
+	toggleBtn   *widget.Button
+	statusLabel *widget.RichText
 }
 
 func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []string) {
@@ -91,6 +98,7 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 	for _, svc := range visibleServices {
 		states[svc] = stateUnknown
 	}
+	isPullPhase := true
 	var mu sync.Mutex
 
 	sortedServices := make([]string, len(visibleServices))
@@ -185,6 +193,12 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 		logBox.Hide()
 		svc.logBox = logBox
 
+		statusLabel := widget.NewRichText(&widget.TextSegment{
+			Text:  "",
+			Style: widget.RichTextStyle{SizeName: theme.SizeNameCaptionText, ColorName: theme.ColorNamePlaceHolder, TextStyle: fyne.TextStyle{Italic: true}},
+		})
+		svc.statusLabel = statusLabel
+
 		monitored[name] = svc
 
 		nameLabel := newCompactLabel(name, false)
@@ -241,11 +255,11 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 		toggleBtn.Importance = widget.LowImportance
 		svc.toggleBtn = toggleBtn
 
-		// Layout: [dot/spinner] name ............. [▼]
+		// Layout: [dot/spinner] name  status ............. [▼]
 		headerRow := container.NewBorder(nil, nil,
 			container.NewCenter(dotBox),
 			toggleBtn,
-			nameLabel,
+			container.NewHBox(nameLabel, statusLabel),
 		)
 		servicesGrid.Add(headerRow)
 		servicesGrid.Add(logBox)
@@ -378,8 +392,10 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 			switch st {
 			case stateRunning:
 				// ok
-			case statePulling:
+			case statePulling, stateWaitingPull:
 				hasPulling = true
+				allRunning = false
+			case statePulled:
 				allRunning = false
 			case stateCreating, stateStarting:
 				hasStarting = true
@@ -397,7 +413,7 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 		} else if allRunning {
 			setGlobalStatus("Ready: ", theme.ColorNameSuccess, true)
 		} else if hasPulling {
-			setGlobalStatus("Pulling...", theme.ColorNameWarning, false)
+			// global pull status is set directly by pull goroutines with count
 		} else if hasStarting {
 			setGlobalStatus("Starting...", theme.ColorNameWarning, false)
 		} else {
@@ -409,8 +425,8 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 		mu.Lock()
 		defer mu.Unlock()
 		for name, ms := range monitored {
-			stateStr := states[name].String()
-			if stateStr == "Pulling" {
+			st := states[name]
+			if st == statePulling {
 				if !ms.pulsing {
 					ms.pulsing = true
 					ms.pulseAnim.Start()
@@ -421,12 +437,12 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 					ms.pulseAnim.Stop()
 				}
 				var c color.Color
-				switch stateStr {
-				case "Running":
+				switch st {
+				case stateRunning:
 					c = colorRunning
-				case "Starting", "Creating":
+				case stateStarting, stateCreating:
 					c = colorStarting
-				case "Error":
+				case stateError:
 					c = colorError
 				default:
 					c = colorUnknown
@@ -438,20 +454,49 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 		updateGlobalStatus()
 	}
 
-	// Start docker compose: pull (visible in monitor as orange "Pulling"), then up
+	// Start docker compose: pull each image with progress, then up
 	outputChan := make(chan string, 100)
 
 	go func() {
-		// Pull step: updates remote images, ignores failures for local/build-only.
-		// Only forward "Pulling"/"Pulled" lines to the monitor (for orange state);
-		// skip errors and download progress to avoid false error states.
+		// Pull step: parse compose output to track per-service pull state
 		pullChan := make(chan string, 100)
 		go func() {
 			for line := range pullChan {
-				lower := strings.ToLower(line)
-				if strings.Contains(lower, "pulling") || strings.Contains(lower, "pulled") {
-					outputChan <- line
+				cleaned := stripANSI(strings.TrimSpace(line))
+				if cleaned == "" {
+					continue
 				}
+				lower := strings.ToLower(cleaned)
+				for _, svcName := range visibleServices {
+					if !strings.Contains(lower, strings.ToLower(svcName)) {
+						continue
+					}
+					if strings.Contains(lower, "pulled") {
+						mu.Lock()
+						states[svcName] = statePulled
+						mu.Unlock()
+						ms := monitored[svcName]
+						fyne.Do(func() {
+							if ms != nil {
+								setServiceStatus(ms, "Pulled")
+							}
+							refreshBadges()
+						})
+					} else if strings.Contains(lower, "pulling") {
+						mu.Lock()
+						states[svcName] = statePulling
+						mu.Unlock()
+						ms := monitored[svcName]
+						fyne.Do(func() {
+							if ms != nil {
+								setServiceStatus(ms, "Pulling...")
+							}
+							refreshBadges()
+						})
+					}
+					break
+				}
+				outputChan <- cleaned
 			}
 		}()
 		log.Println("Running docker compose pull...")
@@ -459,7 +504,21 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 			log.Printf("Pull step error (non-fatal): %v", err)
 		}
 
-		// Up step: start services with locally available images
+		// End pull phase: reset states and clear labels
+		mu.Lock()
+		isPullPhase = false
+		for _, svc := range visibleServices {
+			states[svc] = stateUnknown
+		}
+		mu.Unlock()
+		fyne.Do(func() {
+			for _, ms := range monitored {
+				setServiceStatus(ms, "")
+			}
+			refreshBadges()
+		})
+
+		// Up step
 		log.Println("Running docker compose up...")
 		err := a.executor.Execute(result.EnvVars, result.UpCmd, outputChan)
 		if err != nil {
@@ -485,7 +544,7 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 		}
 	}()
 
-	// Goroutine: poll docker compose ps every 2s
+	// Goroutine: poll docker compose ps every 2s (skip during pull phase)
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
@@ -494,6 +553,12 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
+				mu.Lock()
+				pulling := isPullPhase
+				mu.Unlock()
+				if pulling {
+					continue
+				}
 				newStates := fetchDockerStates(a.workDir, a.getProjectName(), visibleServices)
 				mu.Lock()
 				for k, v := range newStates {
@@ -604,6 +669,18 @@ func appendToServiceLog(ms *monitoredService, line string) {
 		ms.logEntry.SetText(ms.logEntry.Text + line + "\n")
 	}
 	ms.logEntry.CursorRow = ms.logLines
+}
+
+// setServiceStatus updates the inline status label next to a service name.
+// Must be called from the UI thread.
+func setServiceStatus(ms *monitoredService, text string) {
+	ms.statusLabel.Segments = []widget.RichTextSegment{
+		&widget.TextSegment{
+			Text:  text,
+			Style: widget.RichTextStyle{SizeName: theme.SizeNameCaptionText, ColorName: theme.ColorNamePlaceHolder, TextStyle: fyne.TextStyle{Italic: true}},
+		},
+	}
+	ms.statusLabel.Refresh()
 }
 
 func parseLogForStates(line string, services []string, states map[string]serviceState, mu *sync.Mutex) {

@@ -55,6 +55,21 @@ func CheckDockerComposeVersion() error {
 	return nil
 }
 
+func CheckDockerDaemon() error {
+	cmd := exec.Command("docker", "info")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		outputStr := strings.TrimSpace(string(output))
+		if strings.Contains(outputStr, "Cannot connect to the Docker daemon") ||
+			strings.Contains(outputStr, "Is the docker daemon running") {
+			return fmt.Errorf("Docker daemon is not running.\n\nPlease start Docker Desktop and try again.")
+		}
+		return fmt.Errorf("Docker daemon check failed: %s", outputStr)
+	}
+	log.Println("Docker daemon is running")
+	return nil
+}
+
 func CheckRegistryConnectivity() error {
 	timeout := 5 * time.Second
 	conn, err := net.DialTimeout("tcp", RegistryHost, timeout)

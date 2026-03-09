@@ -285,16 +285,21 @@ func (e *Executor) cleanupAllWithOutput(showOutput bool) error {
 		}
 	}
 
-	log.Println("Running docker system prune...")
-	pruneCmd := e.createDockerCommand("system", "prune", "-f")
+	// Skip system prune during initial cleanup — it can take minutes
+	// with large build caches and blocks the UI. Prune is only needed
+	// for reclaiming disk space, not for a clean startup.
 	if showOutput {
+		log.Println("Running docker system prune...")
+		pruneCmd := e.createDockerCommand("system", "prune", "-f")
 		pruneCmd.Stdout = os.Stdout
 		pruneCmd.Stderr = os.Stderr
-	}
-	if err := pruneCmd.Run(); err != nil {
-		log.Printf("System prune failed: %v", err)
+		if err := pruneCmd.Run(); err != nil {
+			log.Printf("System prune failed: %v", err)
+		} else {
+			log.Println("System prune completed")
+		}
 	} else {
-		log.Println("System prune completed")
+		log.Println("Skipping system prune (initial cleanup)")
 	}
 
 	log.Println("Cleanup completed")
