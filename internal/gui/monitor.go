@@ -7,19 +7,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"image/color"
 	"log"
 	"net/url"
 	"os"
 	"os/exec"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
@@ -52,7 +51,7 @@ func stripANSI(s string) string {
 func (s serviceState) String() string {
 	switch s {
 	case stateQueued:
-		return "Queued"
+		return "Queued for pulling"
 	case statePulling:
 		return "Pulling"
 	case stateReady:
@@ -72,9 +71,9 @@ func (s serviceState) String() string {
 
 func (s serviceState) ColorName() fyne.ThemeColorName {
 	switch s {
-	case statePulling:
+	case stateQueued, statePulling:
 		return theme.ColorNameWarning
-	case stateReady, stateStarting:
+	case stateStarting:
 		return colorNameReady
 	case stateRunning:
 		return theme.ColorNameSuccess
@@ -94,20 +93,25 @@ type dockerComposeStatus struct {
 }
 
 type monitoredService struct {
-	name        string
-	expanded    bool
-	cancel      context.CancelFunc
-	logEntry    *widget.Entry
-	logLines    int
-	logBox      *fyne.Container
-	toggleBtn   *widget.Button
-	statusLabel *widget.RichText
+	name         string
+	expanded     bool
+	cancel       context.CancelFunc
+	logEntry     *widget.Entry
+	logLines     int
+	logBox       *fyne.Container
+	toggleBtn    *widget.Button
+	statusLabel  *widget.RichText
+	progressText string // pull progress text, protected by monitor mu
 }
 
 func (ms *monitoredService) updateStatus(state serviceState) {
+	text := "(" + state.String() + ")"
+	if state == statePulling && ms.progressText != "" {
+		text = ms.progressText
+	}
 	ms.statusLabel.Segments = []widget.RichTextSegment{
 		&widget.TextSegment{
-			Text: "(" + state.String() + ")",
+			Text: text,
 			Style: widget.RichTextStyle{
 				SizeName:  theme.SizeNameCaptionText,
 				ColorName: state.ColorName(),
@@ -115,6 +119,46 @@ func (ms *monitoredService) updateStatus(state serviceState) {
 		},
 	}
 	ms.statusLabel.Refresh()
+}
+
+// pullProgressRegex matches docker pull PTY progress lines.
+// PTY format: "abc123: Downloading [===>  ]  8.2MB/51.4MB"
+// Groups: 1=hash  2=current num  3=current unit  4=total num (opt)  5=total unit (opt)
+var pullProgressRegex = regexp.MustCompile(
+	`([a-f0-9]+):\s*Downloading\s+(?:\[.*?\]\s+)?(\d+(?:\.\d+)?)\s*([kMGT]?B)(?:\s*/\s*(\d+(?:\.\d+)?)\s*([kMGT]?B))?`,
+)
+
+func parseByteValue(numStr, unit string) int64 {
+	val, err := strconv.ParseFloat(numStr, 64)
+	if err != nil {
+		return 0
+	}
+	switch strings.ToLower(unit) {
+	case "kb":
+		return int64(val * 1000)
+	case "mb":
+		return int64(val * 1_000_000)
+	case "gb":
+		return int64(val * 1_000_000_000)
+	case "tb":
+		return int64(val * 1_000_000_000_000)
+	default:
+		return int64(val)
+	}
+}
+
+func formatBytes(b int64) string {
+	if b < 1000 {
+		return fmt.Sprintf("%dB", b)
+	}
+	fb := float64(b)
+	for _, unit := range []string{"kB", "MB", "GB", "TB"} {
+		fb /= 1000
+		if fb < 1000 || unit == "TB" {
+			return fmt.Sprintf("%.1f%s", fb, unit)
+		}
+	}
+	return fmt.Sprintf("%dB", b)
 }
 
 func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []string) {
@@ -258,15 +302,12 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 			}
 		})
 		toggleBtn.Importance = widget.LowImportance
-		toggleBtn.Hide()
+		toggleBtn.Disable() // enabled when service has logs (running/failed)
 		svc.toggleBtn = toggleBtn
 
-		// Layout: [status(fixed)] name ............. [▼]
-		statusSpacer := canvas.NewRectangle(color.Transparent)
-		statusSpacer.SetMinSize(fyne.NewSize(70, 0))
-		statusBox := container.NewStack(statusSpacer, statusLabel)
+		// Layout: name (status) ............. [▼]
 		headerRow := container.NewBorder(nil, nil,
-			container.NewHBox(statusBox, nameLabel),
+			container.NewHBox(nameLabel, statusLabel),
 			toggleBtn,
 			nil,
 		)
@@ -418,7 +459,7 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 		} else if hasPulling {
 			setGlobalStatus("Pulling...", theme.ColorNameWarning, false)
 		} else if hasReady {
-			setGlobalStatus("Starting...", theme.ColorNameWarning, false)
+			setGlobalStatus("Starting...", colorNameReady, false)
 		} else {
 			setGlobalStatus("Waiting...", theme.ColorNamePlaceHolder, false)
 		}
@@ -431,7 +472,7 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 			st := states[name]
 			ms.updateStatus(st)
 			if st == stateRunning || st == stateFailed {
-				ms.toggleBtn.Show()
+				ms.toggleBtn.Enable()
 			}
 		}
 		updateGlobalStatus()
@@ -441,45 +482,145 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 	outputChan := make(chan string, 100)
 
 	go func() {
-		// Pull step: parse compose output to track per-service pull state
-		pullChan := make(chan string, 100)
-		go func() {
-			for line := range pullChan {
-				cleaned := stripANSI(strings.TrimSpace(line))
-				if cleaned == "" {
-					continue
-				}
-				lower := strings.ToLower(cleaned)
-				for _, svcName := range visibleServices {
-					if !strings.Contains(lower, strings.ToLower(svcName)) {
-						continue
-					}
-					if strings.Contains(lower, "pulled") {
-						mu.Lock()
-						states[svcName] = stateReady
-						mu.Unlock()
-						fyne.Do(func() {
-							refreshBadges()
-						})
-					} else if strings.Contains(lower, "pulling") {
-						mu.Lock()
-						states[svcName] = statePulling
-						mu.Unlock()
-						fyne.Do(func() {
-							refreshBadges()
-						})
-					}
-					break
-				}
-				outputChan <- cleaned
-			}
-		}()
-		log.Println("Running docker compose pull...")
-		if err := a.executor.Execute(result.EnvVars, result.PullCmd, pullChan); err != nil {
-			log.Printf("Pull step error (non-fatal): %v", err)
+		// Phase 1: Pull each image individually with PTY for per-service progress
+		imageToServices := make(map[string][]string)
+		for svcName, imageRef := range result.Images {
+			imageToServices[imageRef] = append(imageToServices[imageRef], svcName)
 		}
 
-		// End pull phase: mark remaining queued/pulling services as ready (cached/local)
+		// Mark services without pullable images as ready immediately
+		pullableServices := make(map[string]bool)
+		for _, services := range imageToServices {
+			for _, svc := range services {
+				pullableServices[svc] = true
+			}
+		}
+		mu.Lock()
+		for _, svc := range visibleServices {
+			if !pullableServices[svc] {
+				states[svc] = stateReady
+			}
+		}
+		mu.Unlock()
+		fyne.Do(func() { refreshBadges() })
+
+		// Pull images concurrently (max 4 at a time)
+		sem := make(chan struct{}, 4)
+		var pullWg sync.WaitGroup
+
+		for imageRef, services := range imageToServices {
+			pullWg.Add(1)
+			sem <- struct{}{} // acquire slot
+
+			go func(imageRef string, services []string) {
+				defer pullWg.Done()
+				defer func() { <-sem }() // release slot
+
+				if ctx.Err() != nil {
+					return
+				}
+
+				mu.Lock()
+				for _, svc := range services {
+					states[svc] = statePulling
+				}
+				mu.Unlock()
+				fyne.Do(func() { refreshBadges() })
+
+				ch := make(chan string, 100)
+				type layerProg struct{ current, total int64 }
+				layers := make(map[string]*layerProg)
+				var lastUIUpdate time.Time
+
+				var readerWg sync.WaitGroup
+				readerWg.Add(1)
+				go func() {
+					defer readerWg.Done()
+					for line := range ch {
+						cleaned := stripANSI(strings.TrimSpace(line))
+						if cleaned == "" {
+							continue
+						}
+						log.Printf("[pull-image] %s: %s", imageRef, cleaned)
+
+						if m := pullProgressRegex.FindStringSubmatch(cleaned); m != nil {
+							hash := m[1]
+							current := parseByteValue(m[2], m[3])
+							lp := layers[hash]
+							if lp == nil {
+								lp = &layerProg{}
+								layers[hash] = lp
+							}
+							lp.current = current
+							if m[4] != "" && m[5] != "" {
+								lp.total = parseByteValue(m[4], m[5])
+							}
+
+							if time.Since(lastUIUpdate) > 200*time.Millisecond {
+								lastUIUpdate = time.Now()
+								var aggCurrent, aggTotal int64
+								allHaveTotal := true
+								for _, v := range layers {
+									aggCurrent += v.current
+									if v.total > 0 {
+										aggTotal += v.total
+									} else {
+										allHaveTotal = false
+									}
+								}
+
+								var text string
+								if allHaveTotal && aggTotal > 0 {
+									text = fmt.Sprintf("(Pulling %s/%s)", formatBytes(aggCurrent), formatBytes(aggTotal))
+								} else {
+									text = fmt.Sprintf("(Pulling %s)", formatBytes(aggCurrent))
+								}
+								mu.Lock()
+								for _, svc := range services {
+									if ms, ok := monitored[svc]; ok {
+										ms.progressText = text
+									}
+								}
+								mu.Unlock()
+								fyne.Do(func() { refreshBadges() })
+							}
+						}
+					}
+				}()
+
+				log.Printf("Pulling image: %s", imageRef)
+				if err := a.executor.PullImage(ctx, imageRef, ch); err != nil {
+					log.Printf("Pull error for %s (non-fatal): %v", imageRef, err)
+				}
+				close(ch)
+				readerWg.Wait()
+
+				// Mark services as ready, clear progress text (skip if stopping)
+				if ctx.Err() == nil {
+					mu.Lock()
+					for _, svc := range services {
+						states[svc] = stateReady
+						if ms, ok := monitored[svc]; ok {
+							ms.progressText = ""
+						}
+					}
+					mu.Unlock()
+					fyne.Do(func() { refreshBadges() })
+				}
+			}(imageRef, services)
+		}
+
+		pullWg.Wait()
+
+		// Stop here if context was cancelled (cleanup in progress)
+		if ctx.Err() != nil {
+			mu.Lock()
+			isPullPhase = false
+			mu.Unlock()
+			return
+		}
+
+		// End pull phase: mark any remaining queued/pulling as ready
 		mu.Lock()
 		isPullPhase = false
 		for _, svc := range visibleServices {
@@ -488,9 +629,7 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 			}
 		}
 		mu.Unlock()
-		fyne.Do(func() {
-			refreshBadges()
-		})
+		fyne.Do(func() { refreshBadges() })
 
 		// Up step: transition all ready services to starting
 		mu.Lock()
@@ -500,9 +639,7 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 			}
 		}
 		mu.Unlock()
-		fyne.Do(func() {
-			refreshBadges()
-		})
+		fyne.Do(func() { refreshBadges() })
 
 		log.Println("Running docker compose up...")
 		err := a.executor.Execute(result.EnvVars, result.UpCmd, outputChan)

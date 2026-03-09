@@ -15,6 +15,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/creack/pty"
 )
 
 type Executor struct {
@@ -463,6 +465,43 @@ func scanLinesOrCR(data []byte, atEOF bool) (advance int, token []byte, err erro
 		return len(data), data, nil
 	}
 	return 0, nil, nil
+}
+
+// PullImage pulls a single Docker image using a PTY so that Docker emits
+// progress output (Downloading current/total). All non-empty lines are sent
+// to outputChan. The caller must close the channel after this returns.
+func (e *Executor) PullImage(ctx context.Context, imageRef string, outputChan chan<- string) error {
+	cmd := exec.CommandContext(ctx, "docker", "pull", imageRef)
+	cmd.Dir = e.workDir
+	cmd.Env = getDockerEnv()
+
+	// Wide terminal so Docker shows full progress bars with current/total
+	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 24, Cols: 200})
+	if err != nil {
+		return fmt.Errorf("docker pull %s: %w", imageRef, err)
+	}
+	defer ptmx.Close()
+
+	scanner := bufio.NewScanner(ptmx)
+	scanner.Split(scanLinesOrCR)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.TrimSpace(line) != "" {
+			select {
+			case outputChan <- line:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+	}
+	// PTY read error on process exit is expected — ignore scanner.Err()
+	if err := cmd.Wait(); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return fmt.Errorf("docker pull %s: %w", imageRef, err)
+	}
+	return nil
 }
 
 func (e *Executor) StreamServiceLogs(ctx context.Context, serviceName string, tail int, outputChan chan string) error {
