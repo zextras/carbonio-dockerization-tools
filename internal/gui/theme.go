@@ -23,6 +23,8 @@ func (t *carbonioTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVarian
 		return color.NRGBA{R: 255, G: 165, B: 0, A: 255}
 	case theme.ColorNameError:
 		return color.NRGBA{R: 255, G: 60, B: 60, A: 255}
+	case "stateReady":
+		return color.NRGBA{R: 255, G: 220, B: 50, A: 255}
 	}
 	return theme.DefaultTheme().Color(name, variant)
 }
