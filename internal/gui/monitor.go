@@ -36,6 +36,7 @@ const (
 	stateStarting
 	stateRunning
 	stateFailed
+	stateStopping
 )
 
 const colorNameReady fyne.ThemeColorName = "stateReady"
@@ -62,6 +63,8 @@ func (s serviceState) String() string {
 		return "Running"
 	case stateFailed:
 		return "Failed"
+	case stateStopping:
+		return "Stopping"
 	default:
 		return "Queued"
 	}
@@ -304,6 +307,14 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 		cleaning = true
 		cancel()
 
+		mu.Lock()
+		for _, svc := range visibleServices {
+			states[svc] = stateStopping
+		}
+		mu.Unlock()
+		for _, ms := range monitored {
+			ms.updateStatus(stateStopping)
+		}
 		setGlobalStatus("Stopping...", theme.ColorNameWarning, false)
 
 		prog := showProgressModal("Stopping", "Stopping and cleaning up containers...", a.window)
