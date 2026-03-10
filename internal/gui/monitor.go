@@ -197,33 +197,58 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 		accountsBox.Add(widget.NewSeparator())
 	}
 
-	// Global status indicator (single RichText widget for perfect alignment)
-	readyURL, _ := url.Parse("https://docker.carbonio.localhost")
-	globalStatusLabel := widget.NewRichText(&widget.TextSegment{
-		Text:  "Waiting...",
-		Style: widget.RichTextStyle{SizeName: theme.SizeNameCaptionText, ColorName: theme.ColorNamePlaceHolder, TextStyle: fyne.TextStyle{Bold: true}},
+	// Global status: "Services (Starting)" or "Services (Running: <url>)"
+	servicesTitle := newSectionHeader("Services")
+	statusLabel := widget.NewRichText(&widget.TextSegment{
+		Text:  "(Waiting)",
+		Style: widget.RichTextStyle{SizeName: theme.SizeNameSubHeadingText, ColorName: theme.ColorNamePlaceHolder},
 	})
+	readyURL, _ := url.Parse("https://docker.carbonio.localhost")
+	urlLink := widget.NewHyperlink("https://docker.carbonio.localhost", readyURL)
+	urlLink.SizeName = theme.SizeNameSubHeadingText
+	urlLink.Hide()
+	closeParen := widget.NewRichText(&widget.TextSegment{
+		Text:  ")",
+		Style: widget.RichTextStyle{SizeName: theme.SizeNameSubHeadingText, ColorName: theme.ColorNameSuccess},
+	})
+	closeParen.Hide()
+
+	copyURLBtn := widget.NewButtonWithIcon("", theme.ContentCopyIcon(), func() {
+		a.window.Clipboard().SetContent("https://docker.carbonio.localhost")
+	})
+	copyURLBtn.Importance = widget.LowImportance
+	copyURLBtn.Hide()
+
 	setGlobalStatus := func(text string, colorName fyne.ThemeColorName, showLink bool) {
 		if showLink {
-			globalStatusLabel.Segments = []widget.RichTextSegment{
+			statusLabel.Segments = []widget.RichTextSegment{
 				&widget.TextSegment{
-					Text:  text,
-					Style: widget.RichTextStyle{SizeName: theme.SizeNameCaptionText, ColorName: colorName, TextStyle: fyne.TextStyle{Bold: true}},
-				},
-				&widget.HyperlinkSegment{
-					Text: "https://docker.carbonio.localhost",
-					URL:  readyURL,
+					Text:  "(Running: ",
+					Style: widget.RichTextStyle{SizeName: theme.SizeNameSubHeadingText, ColorName: colorName},
 				},
 			}
+			closeParen.Segments = []widget.RichTextSegment{
+				&widget.TextSegment{
+					Text:  ")",
+					Style: widget.RichTextStyle{SizeName: theme.SizeNameSubHeadingText, ColorName: colorName},
+				},
+			}
+			closeParen.Refresh()
+			urlLink.Show()
+			copyURLBtn.Show()
+			closeParen.Show()
 		} else {
-			globalStatusLabel.Segments = []widget.RichTextSegment{
+			statusLabel.Segments = []widget.RichTextSegment{
 				&widget.TextSegment{
-					Text:  text,
-					Style: widget.RichTextStyle{SizeName: theme.SizeNameCaptionText, ColorName: colorName, TextStyle: fyne.TextStyle{Bold: true}},
+					Text:  "(" + text + ")",
+					Style: widget.RichTextStyle{SizeName: theme.SizeNameSubHeadingText, ColorName: colorName},
 				},
 			}
+			urlLink.Hide()
+			copyURLBtn.Hide()
+			closeParen.Hide()
 		}
-		globalStatusLabel.Refresh()
+		statusLabel.Refresh()
 	}
 
 	// Build per-service expandable entries
@@ -305,10 +330,10 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 		toggleBtn.Disable() // enabled when service has logs (running/failed)
 		svc.toggleBtn = toggleBtn
 
-		// Layout: name (status) ............. [▼]
+		// Layout: [▼] name (status)
 		headerRow := container.NewBorder(nil, nil,
-			container.NewHBox(nameLabel, statusLabel),
-			toggleBtn,
+			container.NewHBox(toggleBtn, nameLabel, statusLabel),
+			nil,
 			nil,
 		)
 		servicesGrid.Add(headerRow)
@@ -356,7 +381,7 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 		for _, ms := range monitored {
 			ms.updateStatus(stateStopping)
 		}
-		setGlobalStatus("Stopping...", theme.ColorNameWarning, false)
+		setGlobalStatus("Stopping", theme.ColorNameWarning, false)
 
 		prog := showProgressModal("Stopping", "Stopping and cleaning up containers...", a.window)
 		go func() {
@@ -368,7 +393,8 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 				prog.Hide()
 				setGlobalStatus("Stopped", theme.ColorNameForeground, false)
 				showCleanupCompleteDialog(a.window, func() {
-					a.window.Close()
+					a.window.SetCloseIntercept(nil)
+					a.ShowStartupScreen()
 				})
 			})
 		}()
@@ -401,8 +427,7 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 		},
 	})
 
-	servicesHeaderLabel := newSectionHeader("Services")
-	servicesHeaderRow := container.NewHBox(servicesHeaderLabel, layout.NewSpacer(), globalStatusLabel)
+	servicesHeaderRow := container.NewHBox(servicesTitle, statusLabel, urlLink, copyURLBtn, closeParen)
 
 	topSection := container.NewPadded(container.NewPadded(container.NewVBox(
 		titleRow, editionSubtitle, widget.NewSeparator(),
@@ -455,13 +480,13 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 		if hasError {
 			setGlobalStatus("Failing", theme.ColorNameError, false)
 		} else if allRunning {
-			setGlobalStatus("Ready: ", theme.ColorNameSuccess, true)
+			setGlobalStatus("", theme.ColorNameSuccess, true)
 		} else if hasPulling {
-			setGlobalStatus("Pulling...", theme.ColorNameWarning, false)
+			setGlobalStatus("Pulling", theme.ColorNameWarning, false)
 		} else if hasReady {
-			setGlobalStatus("Starting...", colorNameReady, false)
+			setGlobalStatus("Starting", colorNameReady, false)
 		} else {
-			setGlobalStatus("Waiting...", theme.ColorNamePlaceHolder, false)
+			setGlobalStatus("Waiting", theme.ColorNamePlaceHolder, false)
 		}
 	}
 
