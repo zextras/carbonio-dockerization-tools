@@ -130,10 +130,15 @@ func (a *App) buildDockerCommand() (*docker.BuildResult, error) {
 }
 
 func (a *App) RunInitialCleanup() {
-	log.Println("Running initial cleanup...")
-	if err := a.executor.CleanupAllQuiet(); err != nil {
-		log.Printf("Warning: cleanup failed: %v", err)
+	log.Println("Running initial cleanup (both editions, in case of previous crash)...")
+	// Clean both editions since we don't know which was active before a crash
+	for _, ed := range []string{"ce", "advanced"} {
+		a.executor.SetEdition(ed)
+		if err := a.executor.CleanupAllQuiet(); err != nil {
+			log.Printf("Warning: cleanup for %s failed: %v", ed, err)
+		}
 	}
+	a.executor.SetEdition("ce") // reset to default
 }
 
 func (a *App) saveConfig(filePath string) error {
