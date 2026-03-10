@@ -88,23 +88,6 @@ func (a *App) buildVisibleServicesList() []string {
 }
 
 func (a *App) promptCleanPersistenceThenMonitor(result *docker.BuildResult) {
-	// If volumes from a different edition exist, clean them and go straight to monitor
-	if a.executor.HasConflictingVolumes() {
-		log.Println("Conflicting volumes from another edition detected, cleaning automatically")
-		prog := showProgressModal("Switching Edition",
-			"Removing volumes from the previous edition...", a.window)
-		go func() {
-			if err := a.executor.CleanConflictingVolumes(); err != nil {
-				log.Printf("Conflicting volume cleanup error: %v", err)
-			}
-			fyne.Do(func() {
-				prog.Hide()
-				a.startMonitor(result)
-			})
-		}()
-		return
-	}
-
 	a.showCleanPersistenceDialog(result)
 }
 

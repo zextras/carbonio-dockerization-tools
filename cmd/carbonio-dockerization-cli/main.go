@@ -97,11 +97,6 @@ func main() {
 	workDir := extractor.GetWorkDir()
 	executor := docker.NewExecutor(workDir)
 
-	fmt.Fprintln(os.Stderr, "Cleaning up existing containers...")
-	if err := executor.CleanupAll(); err != nil {
-		log.Printf("Warning: cleanup failed: %v", err)
-	}
-
 	// Load and validate config
 	editionStr, err := config.LoadConfigEdition(configFile)
 	if err != nil {
@@ -113,6 +108,11 @@ func main() {
 		edition = parser.EditionAdvanced
 	}
 	executor.SetEdition(editionStr)
+
+	fmt.Fprintln(os.Stderr, "Cleaning up existing containers...")
+	if err := executor.CleanupAll(); err != nil {
+		log.Printf("Warning: cleanup failed: %v", err)
+	}
 
 	parsedConfig, err := parser.ParseAll(workDir, edition)
 	if err != nil {
@@ -131,14 +131,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Warning: config was created with version %s, but you are running version %s. It may not be fully compatible.\n", configVersion, version)
 	}
 
-	// Clean conflicting volumes from the other edition if they exist
-	if executor.HasConflictingVolumes() {
-		fmt.Fprintln(os.Stderr, "Conflicting volumes from another edition detected, cleaning...")
-		if err := executor.CleanConflictingVolumes(); err != nil {
-			log.Printf("Warning: conflicting volume cleanup failed: %v", err)
-		}
-		fmt.Println()
-	}
 	if clean {
 		fmt.Fprintln(os.Stderr, "Cleaning all persistence...")
 		if err := executor.CleanAllVolumes(); err != nil {

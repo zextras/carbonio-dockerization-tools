@@ -89,6 +89,20 @@ func runPreflightChecks(w fyne.Window, logPath string) {
 			return
 		}
 
+		// Check Docker daemon is running
+		fyne.Do(func() { updateStep("Checking Docker daemon...") })
+		if err := preflight.CheckDockerDaemon(); err != nil {
+			fyne.Do(func() {
+				gui.ShowVPNRetryDialog(
+					fmt.Sprintf("%v", err),
+					w,
+					func() { runPreflightChecks(w, logPath) },
+					func() { gui.ShowGuideDialog(w) },
+				)
+			})
+			return
+		}
+
 		// Check registry connectivity
 		fyne.Do(func() { updateStep("Checking registry connectivity...") })
 		if err := preflight.CheckRegistryConnectivity(); err != nil {

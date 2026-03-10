@@ -19,8 +19,9 @@ type CommandBuilder struct {
 // BuildResult contains the two docker compose commands to run in sequence.
 type BuildResult struct {
 	EnvVars string
-	PullCmd []string // docker compose pull --ignore-pull-failures (updates remote images, ignores local-only)
-	UpCmd   []string // docker compose up --build (uses whatever is locally available)
+	PullCmd []string          // docker compose pull --ignore-pull-failures (updates remote images, ignores local-only)
+	UpCmd   []string          // docker compose up --build (uses whatever is locally available)
+	Images  map[string]string // serviceName → "image:tag" for pullable (non-buildable) services
 }
 
 func NewCommandBuilder(workDir string, edition parser.Edition, parsedConfig *parser.ParsedConfig, natIP string) *CommandBuilder {
@@ -88,10 +89,29 @@ func (b *CommandBuilder) Build() (*BuildResult, error) {
 	upCmd := append(append([]string{}, composeBase...), "up", "--build")
 	upCmd = append(upCmd, selectedServices...)
 
+	// Build image map for individual pulls (only remote/pullable images)
+	images := make(map[string]string)
+	for serviceName, imgConfig := range b.backendServices {
+		svc := b.parsedConfig.BackendServices[serviceName]
+		if svc != nil && svc.DefaultImage != "" && imgConfig != nil && imgConfig.Image != "" {
+			images[serviceName] = fmt.Sprintf("%s:%s", imgConfig.Image, imgConfig.Tag)
+		}
+	}
+	for _, autoName := range parser.GlobalDockerConfig.AutoIncludedServices {
+		if _, alreadySet := images[autoName]; alreadySet {
+			continue
+		}
+		svc := b.parsedConfig.BackendServices[autoName]
+		if svc != nil && svc.DefaultImage != "" && svc.DefaultTag != "" {
+			images[autoName] = fmt.Sprintf("%s:%s", svc.DefaultImage, svc.DefaultTag)
+		}
+	}
+
 	return &BuildResult{
 		EnvVars: strings.Join(envVars, " "),
 		PullCmd: pullCmd,
 		UpCmd:   upCmd,
+		Images:  images,
 	}, nil
 }
 
