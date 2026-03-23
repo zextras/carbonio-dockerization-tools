@@ -1,0 +1,65 @@
+name: Sync embedded dockerization
+
+on:
+  repository_dispatch:
+    types: [dockerization-updated]
+  workflow_dispatch:
+    inputs:
+      source-branch:
+        description: "Branch to pull from carbonio-dockerization"
+        required: true
+        default: "devel"
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      SOURCE_BRANCH: ${{ github.event.client_payload.ref || github.event.inputs.source-branch || 'devel' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.CROSS_REPO_PAT }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Subtree pull
+        id: subtree
+        run: |
+          echo "Pulling from branch: ${SOURCE_BRANCH}"
+
+          git subtree pull \
+            --prefix=internal/embedded/carbonio-dockerization \
+            --squash \
+            -X theirs \
+            https://github.com/zextras/carbonio-dockerization.git \
+            "${SOURCE_BRANCH}" \
+            -m "Squashed 'internal/embedded/carbonio-dockerization/' from ${SOURCE_BRANCH}"
+
+          if git diff --quiet HEAD origin/devel; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push changes
+        if: steps.subtree.outputs.changed == 'true' && env.SOURCE_BRANCH == 'devel'
+        run: |
+          git commit --allow-empty -m "chore: sync embedded carbonio-dockerization (${SOURCE_BRANCH})"
+          git push origin devel
+
+      - name: Dry-run summary (non-devel branches)
+        if: steps.subtree.outputs.changed == 'true' && env.SOURCE_BRANCH != 'devel'
+        run: |
+          echo "### Subtree pull from '${SOURCE_BRANCH}' succeeded" >> "$GITHUB_STEP_SUMMARY"
+          echo "Changes detected but not pushed (source is not devel)." >> "$GITHUB_STEP_SUMMARY"
+          echo "Files changed:" >> "$GITHUB_STEP_SUMMARY"
+          git diff --name-only origin/devel >> "$GITHUB_STEP_SUMMARY"
+
+      - name: No changes
+        if: steps.subtree.outputs.changed == 'false'
+        run: echo "Subtree pull completed but no changes detected."
