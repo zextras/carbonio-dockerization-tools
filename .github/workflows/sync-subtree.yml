@@ -35,7 +35,6 @@ jobs:
           git subtree pull \
             --prefix=internal/embedded/carbonio-dockerization \
             --squash \
-            -X theirs \
             https://github.com/zextras/carbonio-dockerization.git \
             "${SOURCE_BRANCH}" \
             -m "Squashed 'internal/embedded/carbonio-dockerization/' from ${SOURCE_BRANCH}"
