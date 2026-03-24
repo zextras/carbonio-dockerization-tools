@@ -39,11 +39,10 @@ func NewApp(workDir string, logPath string, appVersion string, natIP string, win
 		natIP:      natIP,
 		executor:   docker.NewExecutor(workDir),
 	}
-	a.setupMainMenu()
 	return a
 }
 
-func (a *App) setupMainMenu() {
+func (a *App) SetupMainMenu() {
 	exportLogs := fyne.NewMenuItem("Export Logs...", a.exportLogs)
 	toolsMenu := fyne.NewMenu("Tools", exportLogs)
 	a.window.SetMainMenu(fyne.NewMainMenu(toolsMenu))
@@ -139,6 +138,24 @@ func (a *App) RunInitialCleanup() {
 		}
 	}
 	a.executor.SetEdition("ce") // reset to default
+}
+
+// CleanupAllEditions stops any running docker compose process and cleans up
+// containers for both CE and Advanced editions. This is the safety-net cleanup
+// that runs on window close and OS signals to ensure no ports are left exposed.
+// It is idempotent — safe to call even if nothing is running.
+func (a *App) CleanupAllEditions() {
+	log.Println("CleanupAllEditions: stopping any active process...")
+	a.executor.Stop()
+
+	for _, ed := range []string{"ce", "advanced"} {
+		a.executor.SetEdition(ed)
+		if err := a.executor.CleanupAllQuiet(); err != nil {
+			log.Printf("CleanupAllEditions: cleanup for %s failed: %v", ed, err)
+		}
+	}
+	a.executor.SetEdition("ce")
+	log.Println("CleanupAllEditions: done")
 }
 
 func (a *App) saveConfig(filePath string) error {
