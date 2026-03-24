@@ -201,83 +201,10 @@ jobs:
           path: artifacts/*
           retention-days: 1
 
-  # ── Windows amd64: Inno Setup installer (CLI + GUI .exe) ──
-
-  build-windows:
-    needs: semantic-release
-    if: needs.semantic-release.outputs.new-release-published == 'true'
-    runs-on: windows-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          ref: v${{ needs.semantic-release.outputs.new-release-version }}
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-
-      - name: Install fyne CLI
-        run: go install fyne.io/tools/cmd/fyne@latest
-
-      - name: Build CLI + GUI
-        env:
-          VERSION: ${{ needs.semantic-release.outputs.new-release-version }}
-        shell: bash
-        run: |
-          COMMIT=${GITHUB_SHA::7}
-          DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          LDFLAGS="-X 'main.version=${VERSION}' -X 'main.commit=${COMMIT}' -X 'main.date=${DATE}'"
-
-          mkdir -p build-output
-
-          echo "Building CLI..."
-          CGO_ENABLED=0 go build -ldflags="${LDFLAGS}" -o build-output/carbonio-dockerization-cli.exe ./cmd/carbonio-dockerization-cli
-
-          echo "Generating version info for GUI..."
-          printf 'package main\n\nfunc init() {\n\tversion = "%s"\n\tcommit = "%s"\n\tdate = "%s"\n}\n' \
-            "${VERSION}" "${COMMIT}" "${DATE}" > cmd/carbonio-dockerization-gui/version_gen.go
-
-          echo "Creating GUI .exe..."
-          fyne package \
-            --os windows \
-            --icon "$PWD/carbonio-docker-logo.png" \
-            --app-id com.zextras.carbonio-dockerization-gui \
-            --name "Carbonio Dockerization GUI" \
-            --app-version "${VERSION}" \
-            --src ./cmd/carbonio-dockerization-gui
-
-          rm -f cmd/carbonio-dockerization-gui/version_gen.go
-
-          # fyne package produces the exe in the --src directory
-          mv "cmd/carbonio-dockerization-gui/Carbonio Dockerization GUI.exe" build-output/carbonio-dockerization-gui.exe
-
-      - name: Create installer with Inno Setup
-        env:
-          VERSION: ${{ needs.semantic-release.outputs.new-release-version }}
-        shell: cmd
-        run: |
-          mkdir artifacts
-          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=%VERSION% /DFilesDir=%CD%\build-output /DOutputDir=%CD%\artifacts packaging\windows-installer.iss
-
-      - name: Generate checksum
-        shell: bash
-        run: |
-          cd artifacts
-          for f in *.exe; do sha256sum "$f" > "${f}.sha256"; done
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-amd64
-          path: artifacts/*
-          retention-days: 1
-
   # ── Upload all artifacts to GitHub Release ──
 
   upload-release-assets:
-    needs: [semantic-release, build-linux, build-macos, build-windows]
+    needs: [semantic-release, build-linux, build-macos]
     if: needs.semantic-release.outputs.new-release-published == 'true'
     runs-on: ubuntu-latest
     steps:
