@@ -393,7 +393,6 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 				prog.Hide()
 				setGlobalStatus("Stopped", theme.ColorNameForeground, false)
 				showCleanupCompleteDialog(a.window, func() {
-					a.window.SetCloseIntercept(nil)
 					a.executor.Reset()
 					a.cleanPersistence = false
 					a.ShowStartupScreen()

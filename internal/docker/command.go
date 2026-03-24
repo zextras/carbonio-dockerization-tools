@@ -103,7 +103,7 @@ func (b *CommandBuilder) Build() (*BuildResult, error) {
 		}
 		svc := b.parsedConfig.BackendServices[autoName]
 		if svc != nil && svc.DefaultImage != "" && svc.DefaultTag != "" {
-			images[autoName] = fmt.Sprintf("%s:%s", svc.DefaultImage, svc.DefaultTag)
+			images[autoName] = imageWithTag(svc.DefaultImage, svc.DefaultTag)
 		}
 	}
 
@@ -123,4 +123,16 @@ func (r *BuildResult) StartupCommand() string {
 		return r.EnvVars + " " + cmd
 	}
 	return cmd
+}
+
+// imageWithTag builds an "image:tag" reference. If image already contains a tag
+// (e.g. "alpinelinux/docker-cli:latest"), the existing tag is stripped before
+// appending the provided tag, preventing duplicates like "image:latest:latest".
+func imageWithTag(image, tag string) string {
+	lastSlash := strings.LastIndex(image, "/")
+	lastColon := strings.LastIndex(image, ":")
+	if lastColon > lastSlash {
+		image = image[:lastColon]
+	}
+	return image + ":" + tag
 }

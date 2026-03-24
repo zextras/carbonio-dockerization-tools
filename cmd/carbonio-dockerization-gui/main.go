@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -152,8 +154,40 @@ func continueStartup(w fyne.Window, logPath string, updateStep func(string)) {
 		fyne.Do(func() { updateStep("Cleaning up previous sessions...") })
 		guiApp.RunInitialCleanup()
 
+		// Register global close intercept: always clean up on window close
+		registerGlobalCloseIntercept(w, guiApp)
+
+		// Register OS signal handler for cleanup on SIGTERM/SIGINT
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+		go func() {
+			<-sigChan
+			log.Println("Signal received, cleaning up before exit...")
+			guiApp.CleanupAllEditions()
+			os.Exit(0)
+		}()
+
 		fyne.Do(func() {
+			guiApp.SetupMainMenu()
 			guiApp.ShowStartupScreen()
+			guiApp.CheckForUpdate()
 		})
 	}()
+}
+
+// registerGlobalCloseIntercept sets a safety-net close intercept on the window
+// that ensures all Docker containers are cleaned up when the GUI is closed,
+// regardless of which screen is active. This prevents leftover containers
+// from holding ports after the app exits.
+func registerGlobalCloseIntercept(w fyne.Window, guiApp *gui.App) {
+	w.SetCloseIntercept(func() {
+		log.Println("Window close intercepted, running global cleanup...")
+		go func() {
+			guiApp.CleanupAllEditions()
+			fyne.Do(func() {
+				w.SetCloseIntercept(nil)
+				w.Close()
+			})
+		}()
+	})
 }
