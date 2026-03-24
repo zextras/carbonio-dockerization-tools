@@ -33,7 +33,6 @@ services:
       - CARBONIO_FILES_SERVICE_URL=http://carbonio-files:10000
       - CARBONIO_PREVIEW_SERVICE_URL=http://carbonio-preview:10000
     volumes:
-      - app-volume:/localconfig
       - mailbox_data:/opt/zextras/data/mailbox
       - mailbox_index:/opt/zextras/index
       - mailbox_store:/opt/zextras/store
@@ -536,7 +535,6 @@ volumes:
   mailbox_data:
   mailbox_index:
   mailbox_store:
-  app-volume:
   postgres_data:
   storages_data:
   carbonio-message-broker_data:

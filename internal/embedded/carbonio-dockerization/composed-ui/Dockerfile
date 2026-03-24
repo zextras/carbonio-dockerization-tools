@@ -107,6 +107,19 @@ COPY --from=webui-i18n /opt/zextras/web/iris/carbonio-ws-collaboration-ui/i18n /
 # TODO
 # COPY --from=webui-i18n /opt/zextras/web/iris/carbonio-storages-ui/i18n /opt/zextras/web/iris/carbonio-storages-ui/i18n
 
+# Each UI module serves assets from a path that includes its commit hash, e.g.:
+#   /opt/zextras/web/iris/carbonio-files-ui/<COMMIT_ID>/i18n
+# The COPY above places i18n at the module root, so we relocate it
+# into the correct <COMMIT_ID> subdirectory, reading the hash from component.json.
+RUN for module_dir in /opt/zextras/web/iris/carbonio-*/; do \
+      component_json=$(find "$module_dir" -maxdepth 2 -name component.json | head -1); \
+      if [ -z "$component_json" ] || [ ! -d "$module_dir/i18n" ]; then \
+        continue; \
+      fi; \
+      commit_id=$(jq -r '.commit' "$component_json"); \
+      mv "$module_dir/i18n" "$module_dir/$commit_id/i18n"; \
+    done
+
 # delete empty dirs
 RUN find /opt/zextras/web/iris -type d -empty -delete 2>/dev/null || true && \
     find /opt/zextras/admin/iris -type d -empty -delete 2>/dev/null || true && \

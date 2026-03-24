@@ -34,5 +34,6 @@ echo "=========================================="
 
 # Pulls latest images in the built container
 docker compose build --pull
-# Pulls latest images in the compose files
-exec docker compose up -d --pull always "${ALL_SERVICES[@]}"
+# Pulls latest images in the compose files (ignores failures for local-only images)
+docker compose pull --ignore-pull-failures
+exec docker compose up -d "${ALL_SERVICES[@]}"

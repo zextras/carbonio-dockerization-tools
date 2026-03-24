@@ -1,8 +1,6 @@
 # Carbonio base dockerization
 
 This repo contains the compose files of Carbonio.
-Every project can include it as a submodule, overriding configs to match their specific needs.
-
 Some services are mocked for the sake of keeping things simple.
 
 ## Quick start
@@ -72,47 +70,6 @@ The frontend is assembled in multi-stage Dockerfile (can be found inside
 
 Both backend and frontend images can be overridden by using environment
 variables (see the compose definition for the respective image).
-
-## Get started
-
-In your project, locate where you want to use the compose of this repository
-(let's assume a `docker/` directory).
-
-Include this project as a submodule: `git submodule add https://github.com/zextras/carbonio-base-dockerization.git docker/base/carbonio-base-dockerization`
-and initialize it: `git submodule update --init --recursive`.
-This will create a carbonio-base-dockerization in your chosen directory.
-
-While inside your chosen directory, you can (and probably want to) create some files:
-
-1. For custom images tags, create a `.env` file, refer to `.env.example` in this project. Default values are "latest", with this you can build using specific images.
-2. For custom, maybe locally built images, create a `docker-compose.override.yaml` file. Here you can override existing definitions, refer to `docker-compose.override.example.yaml` in this project.
-
-You can now build everything and start working with
-`docker compose --env-file yourpath/.env \
-  -f yourpath/carbonio-base-dockerization/docker-compose.yaml \
-  -f yourpath/docker-compose.override.yaml \
-  up`.
-Login using `user@carbonio.localhost`/`assext` or `admin@carbonio.localhost`/`assext` for admin privileges.
-
-You may need to adapt Jenkins to ignore submodules, like this:
-`stage('Checkout') {
-    steps {
-        checkout([
-            $class: 'GitSCM',
-            branches: scm.branches,
-            extensions: [
-                [$class: 'SubmoduleOption',
-                    disableSubmodules: true,
-                    recursiveSubmodules: false
-                ]
-            ],
-            userRemoteConfigs: scm.userRemoteConfigs
-        ])
-        script {
-            env.GIT_COMMIT = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
-        }
-    }
-}`
 
 ## Local DNS Mapping
 
