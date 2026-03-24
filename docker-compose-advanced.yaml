@@ -7,6 +7,10 @@ services:
     post_start:
       - command: /bin/sh -c ". /usr/bin/register-service.sh && register"
     image: ${CARBONIO_ADVANCED_IMAGE:-registry.dev.zextras.com/dev/carbonio-advanced:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+    environment:
+      - CARBONIO_STORAGES_HOST=carbonio-storages
+      - CARBONIO_STORAGES_PORT=10000
+      - CARBONIO_FULL_QUOTA_CHECK_ENABLED=${CARBONIO_FULL_QUOTA_CHECK_ENABLED:-false}
     depends_on:
       event-listener:
         condition: service_started
@@ -22,7 +26,6 @@ services:
         condition: service_started
     volumes:
       - ./advanced/register-service.sh:/usr/bin/register-service.sh
-      - app-volume-advanced:/localconfig
       - mailbox_data_advanced:/opt/zextras/data/mailbox
       - mailbox_index_advanced:/opt/zextras/index
       - mailbox_store_advanced:/opt/zextras/store
@@ -75,6 +78,7 @@ services:
       - POSTGRES_URL=carbonio-postgres:5432
       - MAILBOX_URL=http://carbonio-mailbox:8080
       - MAILBOX_ADMIN_URL=https://carbonio-mailbox:7071
+      - MAILBOX_INTERNAL_URL=http://carbonio-mailbox:10000
     depends_on:
       carbonio-postgres:
         condition: service_healthy
@@ -98,6 +102,10 @@ services:
 
   carbonio-videoserver:
     image: ${CARBONIO_VIDEOSERVER_ADVANCED_IMAGE:-registry.dev.zextras.com/dev/carbonio-videoserver-advanced:${CARBONIO_GLOBAL_IMAGES_TAG:-latest}}
+    environment:
+      - NAT_IP=${NAT_IP:-}
+    ports:
+      - "20000-20200:20000-20200/udp"
     volumes:
       - shared-videoserver-advanced:/var/lib/videoserver
 
@@ -106,9 +114,14 @@ services:
     volumes:
       - shared-videoserver-advanced:/var/lib/videoserver
     environment:
-      - CARBONIO_ENV=docker
-      - QUARKUS_CONSUL_CONFIG_AGENT_HOST_PORT=consul:8500
-      - POSTGRES_URL=jdbc:postgresql://carbonio-postgres:5432/carbonio-videorecorder-db
+      - NETWORKING_CONFIG_CARBONIO_SERVICE_HOST=0.0.0.0
+      - NETWORKING_CONFIG_CARBONIO_SERVICE_PORT=8090
+      - NETWORKING_CONFIG_CARBONIO_SERVICE_DISCOVER_HOST=consul
+      - NETWORKING_CONFIG_CARBONIO_SERVICE_DISCOVER_PORT=8500
+      - NETWORKING_CONFIG_CARBONIO_POSTGRESQL_HOST=carbonio-postgres
+      - NETWORKING_CONFIG_CARBONIO_POSTGRESQL_PORT=5432
+      - NETWORKING_CONFIG_CARBONIO_FILES_HOST=carbonio-files
+      - NETWORKING_CONFIG_CARBONIO_FILES_PORT=10000
     depends_on:
       consul:
         condition: service_healthy
@@ -160,7 +173,6 @@ volumes:
   mailbox_index_advanced:
   mailbox_store_advanced:
   mailbox_conf_zextras_advanced:
-  app-volume-advanced:
   postgres_data_advanced:
   storages_data_advanced:
   carbonio-message-broker_data_advanced:

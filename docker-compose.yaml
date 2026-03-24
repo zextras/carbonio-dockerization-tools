@@ -33,7 +33,6 @@ services:
       - CARBONIO_FILES_SERVICE_URL=http://carbonio-files:10000
       - CARBONIO_PREVIEW_SERVICE_URL=http://carbonio-preview:10000
     volumes:
-      - app-volume:/localconfig
       - mailbox_data:/opt/zextras/data/mailbox
       - mailbox_index:/opt/zextras/index
       - mailbox_store:/opt/zextras/store
@@ -472,6 +471,10 @@ services:
     image: ${CARBONIO_VIDEOSERVER_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-videoserver-ce:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
     platform: linux/amd64
     restart: unless-stopped
+    environment:
+      - NAT_IP=${NAT_IP:-}
+    ports:
+      - "20000-20200:20000-20200/udp"
     volumes:
       - shared-videoserver:/var/lib/videoserver
     depends_on:
@@ -532,7 +535,6 @@ volumes:
   mailbox_data:
   mailbox_index:
   mailbox_store:
-  app-volume:
   postgres_data:
   storages_data:
   carbonio-message-broker_data:
