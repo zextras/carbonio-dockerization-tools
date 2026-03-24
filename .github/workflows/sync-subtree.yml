@@ -17,7 +17,7 @@ jobs:
       SOURCE_BRANCH: ${{ github.event.client_payload.ref || github.event.inputs.source-branch || 'devel' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           token: ${{ secrets.CROSS_REPO_PAT }}
