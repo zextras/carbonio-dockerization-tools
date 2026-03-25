@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: carbonio-mariadb
+  labels:
+    app: carbonio-mariadb
+spec:
+  containers:
+    - name: mariadb
+      image: registry.dev.zextras.com/dev/carbonio-mariadb:devel
+      imagePullPolicy: Always
+      volumeMounts:
+        - name: mariadb-data
+          mountPath: /var/lib/mysql
+  volumes:
+    - name: mariadb-data
+      emptyDir: {}
