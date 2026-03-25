@@ -27,27 +27,23 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Subtree pull
+      - name: Sync embedded dockerization
         id: subtree
         run: |
-          echo "Pulling from branch: ${SOURCE_BRANCH}"
+          echo "Syncing from branch: ${SOURCE_BRANCH}"
 
-          if git subtree pull \
+          # Always clean re-add: remove old subtree and add fresh from remote.
+          # This avoids all subtree merge/conflict complexity and guarantees
+          # the embedded dir is an exact copy of the source repo.
+          git rm -rf internal/embedded/carbonio-dockerization/
+          git commit -m "chore: remove embedded subtree for clean re-sync"
+
+          git subtree add \
             --prefix=internal/embedded/carbonio-dockerization \
             --squash \
             https://github.com/zextras/carbonio-dockerization.git \
             "${SOURCE_BRANCH}" \
-            -m "Squashed 'internal/embedded/carbonio-dockerization/' from ${SOURCE_BRANCH}"; then
-            echo "Subtree pull succeeded cleanly"
-          else
-            echo "Conflict detected — accepting all remote changes"
-            # Resolve every conflicted file in favor of remote
-            git diff --name-only --diff-filter=U | xargs -r git checkout --theirs -- 2>/dev/null || true
-            # Handle files deleted in remote
-            git diff --name-only --diff-filter=DU | xargs -r git rm -f 2>/dev/null || true
-            git add internal/embedded/carbonio-dockerization/
-            GIT_EDITOR=true git merge --continue
-          fi
+            -m "Squashed 'internal/embedded/carbonio-dockerization/' from ${SOURCE_BRANCH}"
 
           if git diff --quiet HEAD origin/devel; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
