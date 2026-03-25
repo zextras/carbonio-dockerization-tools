@@ -40,13 +40,21 @@ jobs:
             -m "Squashed 'internal/embedded/carbonio-dockerization/' from ${SOURCE_BRANCH}"; then
             echo "Subtree pull succeeded cleanly"
           else
-            echo "Conflict detected — accepting all remote changes"
-            # Resolve every conflicted file in favor of remote
-            git diff --name-only --diff-filter=U | xargs -r git checkout --theirs -- 2>/dev/null || true
-            # Handle files deleted in remote
-            git diff --name-only --diff-filter=DU | xargs -r git rm -f 2>/dev/null || true
-            git add internal/embedded/carbonio-dockerization/
-            GIT_EDITOR=true git merge --continue
+            echo "Conflict detected — aborting merge and re-syncing from remote"
+            git merge --abort
+
+            # Remove the existing subtree completely
+            git rm -rf internal/embedded/carbonio-dockerization/
+            git commit -m "chore: remove embedded subtree for clean re-sync"
+
+            # Re-add the subtree fresh from remote — this re-establishes
+            # the subtree merge metadata so future pulls work correctly
+            git subtree add \
+              --prefix=internal/embedded/carbonio-dockerization \
+              --squash \
+              https://github.com/zextras/carbonio-dockerization.git \
+              "${SOURCE_BRANCH}" \
+              -m "Squashed 'internal/embedded/carbonio-dockerization/' from ${SOURCE_BRANCH}"
           fi
 
           if git diff --quiet HEAD origin/devel; then
