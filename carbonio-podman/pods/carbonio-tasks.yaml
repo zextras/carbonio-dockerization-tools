@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: carbonio-tasks
+  labels:
+    app: carbonio-tasks
+spec:
+  containers:
+    - name: app
+      image: registry.dev.zextras.com/dev/carbonio-tasks-ce:devel
+      imagePullPolicy: Always
+
+    - name: consul-agent
+      image: docker.io/hashicorp/consul:1.21
+      args: [agent, -client=0.0.0.0, -bind=0.0.0.0, -retry-join=consul-server, -grpc-port=8502, "-hcl=acl { enabled = true default_policy = \"allow\" tokens { agent = \"00000000-0000-0000-0000-000000000000\" } }"]
+
+    - name: sidecar
+      image: registry.dev.zextras.com/dev/carbonio-tasks-sidecar:latest
+      imagePullPolicy: Always
