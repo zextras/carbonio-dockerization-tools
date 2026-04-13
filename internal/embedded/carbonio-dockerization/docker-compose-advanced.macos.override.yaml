@@ -1,7 +1,0 @@
-# Override file for Apple Silicon (ARM64) Macs
-# Forces x86/amd64 emulation for images that don't have ARM64 variants
-
-services:
-
-  carbonio-videorecorder:
-    platform: linux/amd64
