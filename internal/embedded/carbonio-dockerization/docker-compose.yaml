@@ -1,0 +1,548 @@
+name: carbonio
+
+services:
+  event-listener:
+    build:
+      context: ./consul-service-registrator
+    privileged: true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - consul
+    restart: always
+
+  carbonio-mailbox:
+    image: ${CARBONIO_MAILBOX_IMAGE:-registry.dev.zextras.com/dev/carbonio-mailbox:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+    labels:
+      - "servicePort=8080"
+    hostname: docker.carbonio.localhost
+    restart: on-failure
+    ports:
+      - "7071:7071"
+      - "8080:8080"
+      - "7025:7025"
+      - "7143:7143"
+      - "5005:5005"
+    environment:
+      - LDAP_URL=ldap://carbonio-openldap:1389
+      - LDAP_ROOT_PASSWORD=qh6hWZvc
+      - LDAP_ADMIN_PASSWORD=password
+      - MARIADB_ROOT_PASSWORD=password
+      - MARIADB_URL=carbonio-mariadb
+      - MARIADB_PORT=3306
+      - CARBONIO_FILES_SERVICE_URL=http://carbonio-files:10000
+      - CARBONIO_PREVIEW_SERVICE_URL=http://carbonio-preview:10000
+    volumes:
+      - mailbox_data:/opt/zextras/data/mailbox
+      - mailbox_index:/opt/zextras/index
+      - mailbox_store:/opt/zextras/store
+    healthcheck:
+      interval: 10s
+      retries: 100
+      start_period: 50s
+      test: curl --fail --silent localhost:8080/service/health/ready || exit 1
+      timeout: 20s
+    depends_on:
+      event-listener:
+        condition: service_started
+      carbonio-openldap:
+        condition: service_healthy
+      carbonio-postfix:
+        condition: service_healthy
+      carbonio-mariadb:
+        condition: service_started
+
+  carbonio-provisioner:
+    image: alpinelinux/docker-cli:latest
+    depends_on:
+      - carbonio-mailbox
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./provisioning/provisioning.sh:/provisioning.sh:ro
+    command: sh /provisioning.sh
+    restart: "no"
+
+  carbonio-openldap:
+    image: ${CARBONIO_OPENLDAP_IMAGE:-registry.dev.zextras.com/dev/carbonio-openldap:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+    restart: on-failure
+    healthcheck:
+      interval: 60s
+      retries: 10
+      start_period: 20s
+      test: nc -z localhost 1389 || exit 1
+      timeout: 10s
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+      nproc:
+        soft: 65535
+        hard: 65535
+    volumes:
+      - ldap_data:/opt/zextras
+      - ldap_run:/run/carbonio
+      - ldap_ca:/opt/zextras/conf/ca
+
+  carbonio-mariadb:
+    image: ${CARBONIO_MARIADB_IMAGE:-registry.dev.zextras.com/dev/carbonio-mariadb:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+    volumes:
+      - mariadb_data:/var/lib/mysql
+
+  carbonio-postfix:
+    image: ${CARBONIO_MTA_IMAGE:-registry.dev.zextras.com/dev/carbonio-mta:${CARBONIO_GLOBAL_IMAGES_TAG:-latest}}
+    ports:
+      - "20025:25"
+    environment:
+      - LDAP_HOST=carbonio-openldap
+      - LDAP_PORT=1389
+      - LDAP_ROOT_PASSWORD=qh6hWZvc
+      - LDAP_ADMIN_PASSWORD=password
+    healthcheck:
+      interval: 60s
+      retries: 10
+      start_period: 20s
+      test: netcat -z localhost 25 || exit 1
+      timeout: 10s
+    depends_on:
+      carbonio-openldap:
+        condition: service_healthy
+
+  carbonio-user-management:
+    labels:
+      - "servicePort=10000"
+    image: ${CARBONIO_USER_MANAGEMENT_IMAGE:-registry.dev.zextras.com/dev/carbonio-user-management:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+    restart: on-failure
+    environment:
+      - NETWORKING_CONFIG_CARBONIO_SERVICE_HOST=0.0.0.0
+      - NETWORKING_CONFIG_CARBONIO_SERVICE_PORT=10000
+      - NETWORKING_CONFIG_CARBONIO_SERVICE_DISCOVER_HOST=consul
+      - NETWORKING_CONFIG_CARBONIO_SERVICE_DISCOVER_PORT=8500
+      - NETWORKING_CONFIG_CARBONIO_MAILBOX_HOST=carbonio-mailbox
+      - NETWORKING_CONFIG_CARBONIO_MAILBOX_PORT=8080
+    depends_on:
+      event-listener:
+        condition: service_started
+      carbonio-mailbox:
+        condition: service_healthy
+      consul:
+        condition: service_healthy
+
+  consul:
+    image: hashicorp/consul:1.22.3
+    ports:
+      - "8500:8500"
+      - "8600:8600/udp"
+    healthcheck:
+      test: curl --fail --silent localhost:8500/v1/status/leader || exit 1
+      interval: 60s
+      retries: 10
+      start_period: 20s
+      timeout: 10s
+    command:
+      [
+        "agent",
+        "-server",
+        "-bootstrap-expect=1",
+        "-ui",
+        "-client=0.0.0.0",
+        "-bind=0.0.0.0",
+        "-data-dir=/consul/data",
+        "-disable-host-node-id",
+        "-log-level=INFO",
+        "-node=consul-server",
+        "-hcl=disable_update_check = true",
+      ]
+    volumes:
+      - consul-data:/consul/data
+
+  consul-register:
+    image: alpine/curl
+    entrypoint: ["/bin/sh", "-c", "/scripts/init.sh"]
+    volumes:
+      - ./consul:/scripts
+    network_mode: "service:consul"
+    depends_on:
+      consul:
+        condition: service_healthy
+
+  carbonio-catalog:
+    image: ${CARBONIO_CATALOG_IMAGE:-registry.dev.zextras.com/dev/carbonio-catalog:latest}
+    labels:
+      - "servicePort=10000"
+    restart: on-failure
+    environment:
+      - CONSUL_URL=http://consul:8500
+    depends_on:
+      - event-listener
+
+  carbonio-postgres:
+    image: postgres:16
+    restart: on-failure
+    networks:
+      default:
+        aliases:
+          - postgres
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=admin
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init_files.sql:/docker-entrypoint-initdb.d/init_files.sql
+      - ./postgres/init_wsc.sql:/docker-entrypoint-initdb.d/init_wsc.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  carbonio-storages:
+    image: ${CARBONIO_STORAGES_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-storages-ce:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+    labels:
+      - "servicePort=10000"
+    restart: on-failure
+    environment:
+      - STORAGES_PORT=10000
+      - STORAGES_PATH=/storage
+    volumes:
+      - storages_data:/storage
+    depends_on:
+      - event-listener
+
+  carbonio-docs-connector:
+    image: ${CARBONIO_DOCS_CONNECTOR_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-docs-connector-ce:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+    restart: on-failure
+    labels:
+      - "servicePort=10000"
+    environment:
+      - CARBONIO_DOCS_CONNECTOR_HOST=0.0.0.0
+      - CARBONIO_DOCS_CONNECTOR_PORT=10000
+      - CARBONIO_POSTGRES_HOST=carbonio-postgres
+      - CARBONIO_POSTGRES_PORT=5432
+      - CARBONIO_FILES_HOST=carbonio-files
+      - CARBONIO_FILES_PORT=10000
+      - CARBONIO_USER_MANAGEMENT_HOST=carbonio-user-management
+      - CARBONIO_USER_MANAGEMENT_PORT=10000
+      - CARBONIO_WOPI_HOST=carbonio-docs-connector
+      - CARBONIO_WOPI_PORT=10000
+      - CARBONIO_REQUESTER_DOMAIN_OVERRIDE=http://docker.carbonio.localhost
+    depends_on:
+      - event-listener
+      - carbonio-files
+      - carbonio-docs-editor
+    extra_hosts:
+      - "localhost:host-gateway"
+
+  carbonio-docs-editor:
+    labels:
+      - "servicePort=10000"
+    build:
+      context: ./carbonio-docs-editor
+      dockerfile: Dockerfile
+    restart: on-failure
+    environment:
+      - LANG=C.UTF-8
+      - DONT_GEN_SSL_CERT=1
+      - DOCS_PORT=10000
+      - LOG_LEVEL=information
+    cap_add:
+      - MKNOD
+      - SYS_ADMIN
+      - FOWNER
+      - CHOWN
+      - SYS_CHROOT
+    security_opt:
+      - apparmor:unconfined
+    depends_on:
+      - event-listener
+
+  carbonio-preview:
+    image: ${CARBONIO_PREVIEW_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-preview-ce:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+    labels:
+      - "servicePort=10000"
+    restart: on-failure
+    environment:
+      - PREVIEW_HOST=0.0.0.0
+      - PREVIEW_PORT=10000
+      - STORAGES_HOST=carbonio-storages
+      - STORAGES_PORT=10000
+      - DOCS_EDITOR_HOST=carbonio-docs-editor
+      - DOCS_EDITOR_PORT=10000
+    depends_on:
+      - event-listener
+      - consul
+
+  carbonio-message-broker:
+    image: ${CARBONIO_MESSAGE_BROKER_IMAGE:-registry.dev.zextras.com/dev/carbonio-message-broker:${CARBONIO_GLOBAL_IMAGES_TAG:-latest}}
+    hostname: carbonio-message-broker
+    restart: unless-stopped
+    volumes:
+      - carbonio-message-broker_data:/var/lib/rabbitmq
+    healthcheck:
+      test: rabbitmq-diagnostics -q check_port_connectivity
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  carbonio-files:
+    image: ${CARBONIO_FILES_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-files-ce:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+    labels:
+      - "servicePort=10000"
+    restart: on-failure
+    environment:
+      - JAVA_OPTS=-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5050
+      - CARBONIO_FILES_HOST=0.0.0.0
+      - CARBONIO_FILES_PORT=10000
+      - CARBONIO_DOCS_CONNECTOR_HOST=carbonio-docs-connector
+      - CARBONIO_DOCS_CONNECTOR_PORT=10000
+      - CARBONIO_MAILBOX_HOST=carbonio-mailbox
+      - CARBONIO_MAILBOX_PORT=8080
+      - CARBONIO_MESSAGE_BROKER_HOST=carbonio-message-broker
+      - CARBONIO_MESSAGE_BROKER_PORT=10000
+      - CARBONIO_POSTGRESQL_HOST=carbonio-postgres
+      - CARBONIO_POSTGRESQL_PORT=5432
+      - CARBONIO_PREVIEW_HOST=carbonio-preview
+      - CARBONIO_PREVIEW_PORT=10000
+      - CARBONIO_STORAGES_HOST=carbonio-storages
+      - CARBONIO_STORAGES_PORT=10000
+      - CARBONIO_USER_MANAGEMENT_HOST=carbonio-user-management
+      - CARBONIO_USER_MANAGEMENT_PORT=10000
+      - CARBONIO_SERVICE_DISCOVER_HOST=consul
+      - CARBONIO_SERVICE_DISCOVER_PORT=8500
+    depends_on:
+      event-listener:
+        condition: service_started
+      consul:
+        condition: service_healthy
+      carbonio-postgres:
+        condition: service_started
+      carbonio-storages:
+        condition: service_started
+      carbonio-user-management:
+        condition: service_started
+
+  carbonio-composed-ui:
+    hostname: proxy.carbonio.localhost
+    build:
+      context: ./composed-ui
+      dockerfile: Dockerfile
+      args:
+        CARBONIO_SHELL_UI_IMAGE: ${CARBONIO_SHELL_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-shell-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+        CARBONIO_MAILS_UI_IMAGE: ${CARBONIO_MAILS_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-mails-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+        CARBONIO_CONTACTS_UI_IMAGE: ${CARBONIO_CONTACTS_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-contacts-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+        CARBONIO_CALENDARS_UI_IMAGE: ${CARBONIO_CALENDARS_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-calendars-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+        CARBONIO_AUTH_UI_IMAGE: ${CARBONIO_AUTH_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-auth-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+        CARBONIO_SEARCH_UI_IMAGE: ${CARBONIO_SEARCH_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-search-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+        CARBONIO_FILES_UI_IMAGE: ${CARBONIO_FILES_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-files-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+        CARBONIO_TASKS_UI_IMAGE: ${CARBONIO_TASKS_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-tasks-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+        CARBONIO_WSC_UI_IMAGE: ${CARBONIO_WSC_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-ws-collaboration-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+        CARBONIO_STORAGES_UI_IMAGE: ${CARBONIO_STORAGES_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-storages-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+        CARBONIO_LOGIN_UI_IMAGE: ${CARBONIO_LOGIN_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-login-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+        CARBONIO_ADMIN_CONSOLE_UI_IMAGE: ${CARBONIO_ADMIN_CONSOLE_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-admin-console-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+        CARBONIO_ADMIN_LOGIN_UI_IMAGE: ${CARBONIO_ADMIN_LOGIN_UI_IMAGE:-registry.dev.zextras.com/dev/carbonio-admin-login-ui:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+        CARBONIO_WEBUI_I18N_IMAGE: ${CARBONIO_WEBUI_I18N_IMAGE:-registry.dev.zextras.com/dev/carbonio-webui-i18n:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+        CARBONIO_PROXY_IMAGE: ${CARBONIO_PROXY_IMAGE:-registry.dev.zextras.com/dev/carbonio-proxy:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+    environment:
+      - LDAP_URL=ldap://carbonio-openldap:1389
+      - LDAP_ROOT_PASSWORD=qh6hWZvc
+      - LDAP_ADMIN_PASSWORD=password
+      - MARIADB_ROOT_PASSWORD=password
+      - MARIADB_URL=carbonio-mariadb
+      - MARIADB_PORT=3306
+      - CARBONIO_CATALOG_HOST=carbonio-catalog:10000
+      - CARBONIO_AUTH_HOST=carbonio-mailbox:8742
+      - CARBONIO_FILES_HOST=traefik:8082
+      - CARBONIO_DOCS_CONNECTOR_HOST=traefik:8083
+      - CARBONIO_DOCS_EDITOR_HOST=traefik:8084
+      - CARBONIO_TASKS_HOST=traefik:8085
+      - CARBONIO_STORAGES_HOST=traefik:8086
+      - CARBONIO_MESSAGE_DISPATCHER_HOST=traefik:8087
+      - CARBONIO_WSC_HOST=traefik:8088
+    restart: on-failure
+    ports:
+      - "443:443"
+      - "993:993"
+      - "143:143"
+      - "80:80"
+      - "6071:6071"
+      - "9090:9090"
+    volumes:
+      - ./ssl/nginx.key:/opt/zextras/conf/nginx.key
+      - ./ssl/nginx.crt:/opt/zextras/conf/nginx.crt
+    depends_on:
+      traefik:
+        condition: service_started
+      consul:
+        condition: service_healthy
+      carbonio-mailbox:
+        condition: service_healthy
+      memcached:
+        condition: service_started
+      carbonio-catalog:
+        condition: service_started
+
+  memcached:
+    image: memcached:1.6.38-alpine
+
+  traefik:
+    image: traefik:v3.6
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.consulcatalog=true"
+      - "--providers.consulcatalog.endpoint.address=http://consul:8500"
+      - "--providers.consulcatalog.exposedByDefault=false"
+      - "--entrypoints.carbonio-files.address=:8082"
+      - "--entrypoints.carbonio-docs-connector.address=:8083"
+      - "--entrypoints.carbonio-docs-editor.address=:8084"
+      - "--entrypoints.carbonio-tasks.address=:8085"
+      - "--entrypoints.carbonio-storages.address=:8086"
+      - "--entrypoints.carbonio-message-dispatcher.address=:8087"
+      - "--entrypoints.carbonio-ws-collaboration.address=:8088"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      consul:
+        condition: service_healthy
+
+  carbonio-tasks:
+    image: ${CARBONIO_TASKS_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-tasks-ce:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+    labels:
+      - "servicePort=10000"
+    restart: on-failure
+    environment:
+      - CARBONIO_TASKS_HOST=0.0.0.0
+      - CARBONIO_TASKS_PORT=10000
+      - CARBONIO_POSTGRES_HOST=carbonio-postgres
+      - CARBONIO_POSTGRES_PORT=5432
+      - CARBONIO_USER_MANAGEMENT_HOST=carbonio-user-management
+      - CARBONIO_USER_MANAGEMENT_PORT=10000
+    depends_on:
+      event-listener:
+        condition: service_started
+      consul:
+        condition: service_healthy
+      carbonio-postgres:
+        condition: service_started
+      carbonio-user-management:
+        condition: service_started
+    extra_hosts:
+      - "localhost:host-gateway"
+
+  carbonio-message-dispatcher:
+    image: ${CARBONIO_MESSAGE_DISPATCHER_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-message-dispatcher-ce:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+    labels:
+      - "servicePort=10000"
+    restart: unless-stopped
+    environment:
+      - CARBONIO_POSTGRES_HOST=carbonio-postgres
+      - CARBONIO_POSTGRES_PORT=5432
+      # Mongoose doesn't read from consul
+      - CARBONIO_POSTGRES_DB_NAME=carbonio-message-dispatcher-db
+      - CARBONIO_POSTGRES_DB_USERNAME=admin
+      - CARBONIO_POSTGRES_DB_PASSWORD=admin
+      # GraphQL API credentials
+      - CARBONIO_GRAPHQL_API_USERNAME=admin
+      - CARBONIO_GRAPHQL_API_PASSWORD=admin-password
+      # Auth service
+      - CARBONIO_MESSAGE_DISPATCHER_AUTH_HOST=127.0.0.1
+      - CARBONIO_MESSAGE_DISPATCHER_AUTH_PORT=10002
+      - CARBONIO_USER_MANAGEMENT_HOST=carbonio-user-management
+      - CARBONIO_USER_MANAGEMENT_PORT=10000
+    depends_on:
+      event-listener:
+        condition: service_started
+      consul:
+        condition: service_healthy
+      carbonio-postgres:
+        condition: service_healthy
+      consul-register:
+        condition: service_completed_successfully
+    extra_hosts:
+      - "localhost:host-gateway"
+    healthcheck:
+      test: ["CMD", "mongooseimctl", "status"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+  carbonio-videoserver:
+    image: ${CARBONIO_VIDEOSERVER_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-videoserver-ce:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+    platform: linux/amd64
+    restart: unless-stopped
+    environment:
+      - NAT_IP=${NAT_IP:-}
+    ports:
+      - "20000-20200:20000-20200/udp"
+    volumes:
+      - shared-videoserver:/var/lib/videoserver
+    depends_on:
+      carbonio-message-broker:
+        condition: service_healthy
+
+  carbonio-ws-collaboration:
+    image: ${CARBONIO_WSC_CE_IMAGE:-registry.dev.zextras.com/dev/carbonio-ws-collaboration-ce:${CARBONIO_GLOBAL_IMAGES_TAG:-latest}}
+    labels:
+      - "servicePort=8080"
+    restart: unless-stopped
+    environment:
+      - TZ=UTC
+      - APP_ENVIRONMENT=docker
+      - DATABASE_JDBC_DRIVER=org.postgresql.Driver
+      - DATABASE_JDBC_URL=jdbc:postgresql://carbonio-postgres:5432/carbonio-ws-collaboration-db
+      - EVENT_DISPATCHER_HOST=carbonio-message-broker
+      - EVENT_DISPATCHER_PORT=10000
+      - EVENT_DISPATCHER_USER_USERNAME=guest
+      - EVENT_DISPATCHER_USER_PASSWORD=guest
+      - CONSUL_HOST=consul
+      - CONSUL_PORT=8500
+      - XMPP_SERVER_HOST=carbonio-message-dispatcher
+      - XMPP_SERVER_HTTP_PORT=10000
+      - XMPP_SERVER_USERNAME=admin
+      - XMPP_SERVER_PASSWORD=admin-password
+      - USER_MANAGEMENT_HOST=carbonio-user-management
+      - USER_MANAGEMENT_PORT=10000
+      - PREVIEWER_HOST=carbonio-preview
+      - PREVIEWER_PORT=10000
+      - VIDEO_SERVER_HOST=carbonio-videoserver
+      - VIDEO_SERVER_PORT=8088
+      - VIDEO_SERVER_TOKEN=api-secret
+      - MAILBOX_NSLOOKUP_HOST=carbonio-mailbox
+      - MAILBOX_NSLOOKUP_PORT=7072
+      - STORAGES_HOST=carbonio-storages
+      - STORAGES_PORT=10000
+    depends_on:
+      event-listener:
+        condition: service_started
+      carbonio-postgres:
+        condition: service_healthy
+      carbonio-message-broker:
+        condition: service_healthy
+      carbonio-message-dispatcher:
+        condition: service_healthy
+      carbonio-storages:
+        condition: service_started
+      carbonio-user-management:
+        condition: service_started
+
+volumes:
+  ldap_data:
+  ldap_run:
+  ldap_ca:
+  mariadb_data:
+  postfix_data:
+  mailbox_data:
+  mailbox_index:
+  mailbox_store:
+  postgres_data:
+  storages_data:
+  carbonio-message-broker_data:
+  shared-videoserver:
+  consul-data:
