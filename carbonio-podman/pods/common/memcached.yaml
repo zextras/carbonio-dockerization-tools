@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: memcached
+  labels:
+    app: memcached
+spec:
+  containers:
+    - name: memcached
+      image: docker.io/library/memcached:1.6.38-alpine
+      ports:
+        - containerPort: 11211
