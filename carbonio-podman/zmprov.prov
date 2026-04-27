@@ -1,0 +1,13 @@
+cd carbonio.localhost
+mcf zimbraSmtpHostname carbonio-postfix
+mcf zimbraPublicServiceHostname localhost
+mcf zimbraDefaultDomainName carbonio.localhost
+ca zextras@carbonio.localhost assext zimbraIsAdminAccount TRUE
+ca admin@carbonio.localhost assext zimbraIsAdminAccount TRUE
+ca user@carbonio.localhost assext
+mc default carbonioFeatureWscEnabled TRUE
+mc default carbonioWscRecordingEnabled TRUE
+
+cd test.com
+ca test1@test.com assext
+ca test2@test.com assext
