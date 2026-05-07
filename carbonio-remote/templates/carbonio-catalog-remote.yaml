@@ -1,0 +1,81 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: carbonio-catalog
+  labels:
+    app: carbonio-catalog
+spec:
+  containers:
+    - name: app
+      image: registry.dev.zextras.com/dev/carbonio-catalog:latest
+      imagePullPolicy: Always
+      env:
+        - name: CONSUL_URL
+          value: "http://localhost:8500"
+      volumeMounts:
+        - name: service-discover
+          mountPath: /etc/carbonio/catalog/service-discover
+
+    - name: consul-agent
+      image: docker.io/hashicorp/consul:1.21
+      args:
+        - agent
+        - -config-file=/consul/config/consul-remote.hcl
+      volumeMounts:
+        - name: consul-tls
+          mountPath: /consul/tls
+        - name: consul-config
+          mountPath: /consul/config
+
+    - name: sidecar
+      image: registry.dev.zextras.com/dev/carbonio-catalog-sidecar:devel
+      imagePullPolicy: Always
+      env:
+        - name: CONSUL_HTTP_TOKEN
+          value: "CONSUL_TOKEN"
+        - name: BOOTSTRAP_TOKEN
+          value: "CONSUL_TOKEN"
+      volumeMounts:
+        - name: service-discover
+          mountPath: /etc/carbonio/catalog/service-discover
+
+    - name: test-sidecar
+      image: registry.dev.zextras.com/dev/carbonio-sidecar:latest
+      env:
+        - name: SERVICE_NAME
+          value: "carbonio-test"
+        - name: CONSUL_HTTP_TOKEN
+          value: "CONSUL_TOKEN"
+        - name: BOOTSTRAP_TOKEN
+          value: "CONSUL_TOKEN"
+        - name: TOKEN_FILE
+          value: "/etc/carbonio/carbonio-test/service-discover/token"
+        - name: SETUP_SCRIPT
+          value: "/opt/scripts/setup-token.sh"
+      volumeMounts:
+        - name: consul-tls
+          mountPath: /consul/tls
+        - name: service-config
+          mountPath: /consul/config
+        - name: setup-scripts
+          mountPath: /opt/scripts
+
+  volumes:
+    - name: consul-tls
+      hostPath:
+        path: CONSUL_TLS_DIR
+        type: Directory
+    - name: consul-config
+      hostPath:
+        path: CONSUL_CONFIG_DIR
+        type: Directory
+    - name: service-config
+      hostPath:
+        path: SERVICE_CONFIG_DIR
+        type: Directory
+    - name: setup-scripts
+      hostPath:
+        path: SETUP_SCRIPTS_DIR
+        type: Directory
+    - name: service-discover
+      emptyDir: {}
