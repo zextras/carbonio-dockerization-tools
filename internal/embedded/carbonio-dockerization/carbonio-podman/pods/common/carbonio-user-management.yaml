@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: carbonio-user-management
+  labels:
+    app: carbonio-user-management
+spec:
+  containers:
+    - name: app
+      image: registry.dev.zextras.com/dev/carbonio-user-management:devel
+      imagePullPolicy: Always
+      env:
+        - name: QUARKUS_OTEL_SDK_DISABLED
+          value: "false"
+        - name: QUARKUS_OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "http://carbonio-monitoring:4317"
+      volumeMounts:
+        - name: um-token
+          mountPath: /etc/carbonio/user-management/service-discover
+
+    - name: consul-agent
+      image: docker.io/hashicorp/consul:1.21
+      args: [agent, -client=0.0.0.0, -bind=0.0.0.0, -retry-join=consul-server, -grpc-port=8502, -config-dir=/consul/acl]
+      volumeMounts:
+        - name: consul-agent-acl
+          mountPath: /consul/acl/consul-agent-acl.hcl
+          subPath: consul-agent-acl.hcl
+          readOnly: true
+
+    - name: sidecar
+      image: registry.dev.zextras.com/dev/carbonio-user-management-sidecar:devel
+      imagePullPolicy: Always
+      env:
+        - name: CONSUL_HTTP_TOKEN
+          valueFrom:
+            configMapKeyRef:
+              name: consul-acl
+              key: bootstrap-token
+      volumeMounts:
+        - name: um-token
+          mountPath: /shared-tokens
+  volumes:
+    - name: um-token
+      hostPath:
+        path: ./tokens/user-management/service-discover
+        type: DirectoryOrCreate
+    - name: consul-agent-acl
+      configMap:
+        name: consul-acl
+        items:
+          - key: consul-agent-acl.hcl
+            path: consul-agent-acl.hcl
