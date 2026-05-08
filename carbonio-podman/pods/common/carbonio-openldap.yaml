@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: carbonio-openldap
+  labels:
+    app: carbonio-openldap
+spec:
+  containers:
+    - name: openldap
+      image: registry.dev.zextras.com/dev/carbonio-openldap:devel
+      ports:
+        - containerPort: 1389
+      volumeMounts:
+        - name: ldap-data
+          mountPath: /opt/zextras
+        - name: ldap-run
+          mountPath: /run/carbonio
+        - name: ldap-ca
+          mountPath: /opt/zextras/conf/ca
+  volumes:
+    - name: ldap-data
+      persistentVolumeClaim:
+        claimName: ldap-data
+    - name: ldap-run
+      persistentVolumeClaim:
+        claimName: ldap-run
+    - name: ldap-ca
+      persistentVolumeClaim:
+        claimName: ldap-ca
