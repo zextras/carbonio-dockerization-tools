@@ -435,7 +435,7 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 	servicesHeaderRow := container.NewHBox(servicesTitle, statusLabel, urlLink, copyURLBtn, closeParen)
 
 	topSection := container.NewPadded(container.NewPadded(container.NewVBox(
-		titleRow, editionSubtitle, widget.NewSeparator(),
+		a.versionInfoLabel(), titleRow, editionSubtitle, widget.NewSeparator(),
 		accountsBox,
 		servicesHeaderRow,
 	)))

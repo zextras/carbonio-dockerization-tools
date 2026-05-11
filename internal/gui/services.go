@@ -290,7 +290,7 @@ func (a *App) ShowServicesScreen(resolver *graph.DependencyResolver) {
 		frontendResult.container,
 	)
 
-	topSection := container.NewPadded(container.NewPadded(container.NewVBox(titleRow, editionSubtitle, description, toolbar, widget.NewSeparator())))
+	topSection := container.NewPadded(container.NewPadded(container.NewVBox(a.versionInfoLabel(), titleRow, editionSubtitle, description, toolbar, widget.NewSeparator())))
 	bottomSection := container.NewPadded(container.NewPadded(container.NewHBox(
 		wideButton(backBtn, 120),
 		wideButton(exportBtn, 150),

@@ -6,11 +6,11 @@ package gui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"image/color"
 	"log"
-	"os/exec"
-	"regexp"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -21,8 +21,6 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
-
-var semverTagRegex = regexp.MustCompile(`^v(\d+)\.(\d+)\.(\d+)$`)
 
 type semver struct {
 	major, minor, patch int
@@ -53,9 +51,11 @@ func (a semver) newerThan(b semver) bool {
 	return a.patch > b.patch
 }
 
-// checkForUpdate queries GitHub for tags via git ls-remote and returns the
-// latest semver tag if it is newer than appVersion. Returns ("", false) if
-// no update is available, the version is "dev", or any error occurs.
+const latestReleaseURL = "https://api.github.com/repos/zextras/carbonio-dockerization-tools/releases/latest"
+
+// checkForUpdate queries GitHub Releases API and returns the latest release
+// tag if it is newer than appVersion. Returns ("", false) if no update is
+// available, the version is "dev", or any error occurs.
 func checkForUpdate(appVersion string) (latestTag string, hasUpdate bool) {
 	if appVersion == "" || appVersion == "dev" {
 		return "", false
@@ -70,50 +70,45 @@ func checkForUpdate(appVersion string) (latestTag string, hasUpdate bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "git", "ls-remote", "--tags", "https://github.com/zextras/carbonio-dockerization-tools.git")
-	out, err := cmd.Output()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, latestReleaseURL, nil)
 	if err != nil {
-		log.Printf("version_check: git ls-remote failed: %v", err)
+		log.Printf("version_check: failed to create request: %v", err)
+		return "", false
+	}
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Printf("version_check: GitHub API request failed: %v", err)
+		return "", false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("version_check: GitHub API returned status %d", resp.StatusCode)
 		return "", false
 	}
 
-	var best semver
-	var bestTag string
-
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		parts := strings.Fields(line)
-		if len(parts) < 2 {
-			continue
-		}
-		ref := parts[1]
-		// Skip dereferenced tags (^{})
-		if strings.HasSuffix(ref, "^{}") {
-			continue
-		}
-		tag := strings.TrimPrefix(ref, "refs/tags/")
-		if !semverTagRegex.MatchString(tag) {
-			continue
-		}
-		ver, ok := parseSemver(tag)
-		if !ok {
-			continue
-		}
-		if ver.newerThan(best) {
-			best = ver
-			bestTag = tag
-		}
+	var release struct {
+		TagName string `json:"tag_name"`
 	}
-
-	if bestTag == "" {
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		log.Printf("version_check: failed to parse response: %v", err)
 		return "", false
 	}
 
-	if best.newerThan(currentVer) {
-		return bestTag, true
+	if release.TagName == "" {
+		return "", false
+	}
+
+	latestVer, ok := parseSemver(release.TagName)
+	if !ok {
+		log.Printf("version_check: cannot parse latest version %q", release.TagName)
+		return "", false
+	}
+
+	if latestVer.newerThan(currentVer) {
+		return release.TagName, true
 	}
 	return "", false
 }
@@ -160,16 +155,36 @@ func showUpdateAvailableDialog(latestVersion, currentVersion string, win fyne.Wi
 	pop.Show()
 }
 
-// CheckForUpdate runs a background version check against GitHub and shows
-// a non-blocking modal if a newer version is available. Errors are silently
-// logged without affecting the user.
+// CheckForUpdate runs a background version check against GitHub, stores the
+// result for use by versionInfoLabel, and shows a non-blocking modal if a
+// newer version is available. Errors are silently logged.
 func (a *App) CheckForUpdate() {
 	go func() {
 		latestTag, hasUpdate := checkForUpdate(a.appVersion)
+		a.latestVersion = latestTag
+		a.hasUpdate = hasUpdate
 		if hasUpdate {
 			fyne.Do(func() {
 				showUpdateAvailableDialog(latestTag, a.appVersion, a.window)
 			})
 		}
 	}()
+}
+
+func (a *App) versionInfoLabel() *widget.RichText {
+	var text string
+	colorName := theme.ColorNamePlaceHolder
+	if a.hasUpdate {
+		text = fmt.Sprintf("New version available (%s), current: %s", a.latestVersion, a.appVersion)
+		colorName = theme.ColorNameWarning
+	} else {
+		text = fmt.Sprintf("Current version: %s", a.appVersion)
+	}
+	return widget.NewRichText(&widget.TextSegment{
+		Text: text,
+		Style: widget.RichTextStyle{
+			SizeName:  theme.SizeNameCaptionText,
+			ColorName: colorName,
+		},
+	})
 }
