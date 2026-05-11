@@ -155,16 +155,36 @@ func showUpdateAvailableDialog(latestVersion, currentVersion string, win fyne.Wi
 	pop.Show()
 }
 
-// CheckForUpdate runs a background version check against GitHub and shows
-// a non-blocking modal if a newer version is available. Errors are silently
-// logged without affecting the user.
+// CheckForUpdate runs a background version check against GitHub, stores the
+// result for use by versionInfoLabel, and shows a non-blocking modal if a
+// newer version is available. Errors are silently logged.
 func (a *App) CheckForUpdate() {
 	go func() {
 		latestTag, hasUpdate := checkForUpdate(a.appVersion)
+		a.latestVersion = latestTag
+		a.hasUpdate = hasUpdate
 		if hasUpdate {
 			fyne.Do(func() {
 				showUpdateAvailableDialog(latestTag, a.appVersion, a.window)
 			})
 		}
 	}()
+}
+
+func (a *App) versionInfoLabel() *widget.RichText {
+	var text string
+	colorName := theme.ColorNamePlaceHolder
+	if a.hasUpdate {
+		text = fmt.Sprintf("New version available (%s), current: %s", a.latestVersion, a.appVersion)
+		colorName = theme.ColorNameWarning
+	} else {
+		text = fmt.Sprintf("Current version: %s", a.appVersion)
+	}
+	return widget.NewRichText(&widget.TextSegment{
+		Text: text,
+		Style: widget.RichTextStyle{
+			SizeName:  theme.SizeNameCaptionText,
+			ColorName: colorName,
+		},
+	})
 }

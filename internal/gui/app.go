@@ -32,6 +32,8 @@ type App struct {
 	pendingBackend   map[string]*config.ImageConfig
 	pendingFrontend  map[string]*config.ImageConfig
 	cleanPersistence bool
+	latestVersion    string
+	hasUpdate        bool
 }
 
 func NewApp(workDir string, logPath string, appVersion string, natIP string, window fyne.Window) *App {
