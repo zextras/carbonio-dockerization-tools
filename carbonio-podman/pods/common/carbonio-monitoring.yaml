@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: carbonio-monitoring
+  labels:
+    app: carbonio-monitoring
+spec:
+  containers:
+    - name: lgtm
+      image: docker.io/grafana/otel-lgtm:latest
+      ports:
+        - containerPort: 3000
+          hostPort: 3000
+        - containerPort: 4317
+          hostPort: 4317
+        - containerPort: 4318
+          hostPort: 4318
+      volumeMounts:
+        - name: custom-dashboards-config
+          mountPath: /otel-lgtm/grafana/conf/provisioning/dashboards/custom.yaml
+          readOnly: true
+        - name: traces-dashboard
+          mountPath: /custom-dashboards/traces-dashboard.json
+          readOnly: true
+        - name: logs-by-service-dashboard
+          mountPath: /custom-dashboards/logs-by-service-dashboard.json
+          readOnly: true
+
+  volumes:
+    - name: custom-dashboards-config
+      hostPath:
+        path: ./monitoring/custom-dashboards.yaml
+        type: File
+    - name: traces-dashboard
+      hostPath:
+        path: ./monitoring/traces-dashboard.json
+        type: File
+    - name: logs-by-service-dashboard
+      hostPath:
+        path: ./monitoring/logs-by-service-dashboard.json
+        type: File
