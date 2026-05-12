@@ -173,6 +173,19 @@ func main() {
 		log.Printf("Pull step error (non-fatal): %v", err)
 	}
 
+	if len(result.BuildCmd) > 0 {
+		fmt.Fprintln(os.Stderr, "Building images (pulling fresh base images)...")
+		buildChan := make(chan string, 100)
+		go func() {
+			for line := range buildChan {
+				fmt.Println(line)
+			}
+		}()
+		if err := executor.Execute(result.EnvVars, result.BuildCmd, buildChan); err != nil {
+			log.Printf("Build step error (non-fatal): %v", err)
+		}
+	}
+
 	fmt.Fprintln(os.Stderr, "Starting Carbonio services...")
 	fmt.Fprintln(os.Stderr, "Press Ctrl+C to stop and cleanup")
 	fmt.Println()

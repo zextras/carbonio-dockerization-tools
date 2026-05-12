@@ -671,6 +671,15 @@ func (a *App) ShowMonitorScreen(result *docker.BuildResult, visibleServices []st
 		mu.Unlock()
 		fyne.Do(func() { refreshBadges() })
 
+		if len(result.BuildCmd) > 0 {
+			log.Println("Building images (pulling fresh base images)...")
+			buildChan := make(chan string, 100)
+			go func() { for range buildChan {} }()
+			if err := a.executor.Execute(result.EnvVars, result.BuildCmd, buildChan); err != nil {
+				log.Printf("Docker build error (non-fatal): %v", err)
+			}
+		}
+
 		log.Println("Running docker compose up...")
 		err := a.executor.Execute(result.EnvVars, result.UpCmd, outputChan)
 		if err != nil {
