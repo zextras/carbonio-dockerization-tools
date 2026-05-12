@@ -20,12 +20,13 @@ type CommandBuilder struct {
 	parsedConfig    *parser.ParsedConfig
 }
 
-// BuildResult contains the two docker compose commands to run in sequence.
+// BuildResult contains the docker compose commands to run in sequence.
 type BuildResult struct {
-	EnvVars string
-	PullCmd []string          // docker compose pull --ignore-pull-failures (updates remote images, ignores local-only)
-	UpCmd   []string          // docker compose up --build (uses whatever is locally available)
-	Images  map[string]string // serviceName → "image:tag" for pullable (non-buildable) services
+	EnvVars  string
+	PullCmd  []string          // docker compose pull --ignore-pull-failures (updates remote images, ignores local-only)
+	BuildCmd []string          // docker compose build --pull (refreshes FROM base images in Dockerfiles)
+	UpCmd    []string          // docker compose up --build (starts services)
+	Images   map[string]string // serviceName → "image:tag" for pullable (non-buildable) services
 }
 
 func NewCommandBuilder(workDir string, edition parser.Edition, parsedConfig *parser.ParsedConfig, natIP string) *CommandBuilder {
@@ -89,8 +90,12 @@ func (b *CommandBuilder) Build() (*BuildResult, error) {
 	pullCmd := append(append([]string{}, composeBase...), "pull", "--ignore-buildable", "--ignore-pull-failures")
 	pullCmd = append(pullCmd, selectedServices...)
 
-	// Up command: start with whatever is locally available (pull already done above)
-	upCmd := append(append([]string{}, composeBase...), "up", "--build")
+	// Build command: --pull refreshes base images in FROM stages (e.g. carbonio-proxy:devel).
+	// No service filter: builds all services with a build: section.
+	buildCmd := append(append([]string{}, composeBase...), "build", "--pull")
+
+	// Up command: images already built by buildCmd, no need for --build
+	upCmd := append(append([]string{}, composeBase...), "up")
 	upCmd = append(upCmd, selectedServices...)
 
 	// Build image map for individual pulls (only remote/pullable images)
@@ -112,10 +117,11 @@ func (b *CommandBuilder) Build() (*BuildResult, error) {
 	}
 
 	return &BuildResult{
-		EnvVars: strings.Join(envVars, " "),
-		PullCmd: pullCmd,
-		UpCmd:   upCmd,
-		Images:  images,
+		EnvVars:  strings.Join(envVars, " "),
+		PullCmd:  pullCmd,
+		BuildCmd: buildCmd,
+		UpCmd:    upCmd,
+		Images:   images,
 	}, nil
 }
 
