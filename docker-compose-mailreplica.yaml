@@ -1,0 +1,107 @@
+services:
+
+  carbonio-mailbox:
+    post_start:
+      - command: /bin/sh -c ". /usr/bin/register-service.sh && register && carbonio config set global brokers kafka:9092"
+    volumes:
+      - app-volume_mailreplica_mbox01:/localconfig
+      - mailbox_data_mailreplica_mbox01:/opt/zextras/data/mailbox
+      - mailbox_index_mailreplica_mbox01:/opt/zextras/index
+      - mailbox_store_mailreplica_mbox01:/opt/zextras/store
+      - mailbox_conf_mailreplica_cluster_mbox01:/opt/zextras/conf/zextras
+
+  carbonio-mariadb:
+    volumes:
+      - mariadb_data_mailreplica_mbox01:/var/lib/mysql
+
+  carbonio-mailbox02:
+    post_start:
+      - command: /bin/sh -c ". /usr/bin/register-service.sh && register && carbonio --host mbox01.localhost config set global brokers kafka:9092"
+    restart: on-failure
+    volumes:
+      - app-volume_mailreplica_mbox02:/localconfig
+      - mailbox_data_mailreplica_mbox02:/opt/zextras/data/mailbox
+      - mailbox_index_mailreplica_mbox02:/opt/zextras/index
+      - mailbox_store_mailreplica_mbox02:/opt/zextras/store
+      - mailbox_conf_mailreplica_cluster_mbox02:/opt/zextras/conf/zextras
+
+  carbonio-mariadb02:
+    image: ${CARBONIO_MARIADB_IMAGE:-registry.dev.zextras.com/dev/carbonio-mariadb:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+    volumes:
+      - mariadb_data_mailreplica_mbox02:/var/lib/mysql
+
+  carbonio-postgres:
+    volumes:
+      - postgres_data_mailreplica:/var/lib/postgresql/data
+      - ./postgres/init_files.sql:/docker-entrypoint-initdb.d/init_files.sql
+      - ./postgres/init_wsc.sql:/docker-entrypoint-initdb.d/init_wsc.sql
+      - ./postgres/init_advanced.sql:/docker-entrypoint-initdb.d/init_advanced.sql
+
+  carbonio-storages:
+    volumes:
+      - storages_data_mailreplica:/storage
+
+  carbonio-message-broker:
+    volumes:
+      - carbonio-message-broker_data_mailreplica:/var/lib/rabbitmq
+
+  consul:
+    volumes:
+      - consul-data_mailreplica:/consul/data
+
+  carbonio-videoserver:
+    volumes:
+      - shared-videoserver_mailreplica:/var/lib/videoserver
+
+  carbonio-videorecorder:
+    volumes:
+      - shared-videoserver_mailreplica:/var/lib/videoserver
+  kafka:
+    image: apache/kafka:latest
+    container_name: kafka
+    hostname: kafka
+    ports:
+      - "9092:9092"  # External access from host: localhost:9092
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:29093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      CLUSTER_ID: Mk3OEYBSD34fcwNTJENDM2Qk  # Any unique string
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    restart: unless-stopped
+    healthcheck:
+      test: sh /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
+      interval: 5s
+      timeout: 10s
+      retries: 10
+
+volumes:
+  mariadb_data_mailreplica_mbox01:
+  mailbox_data_mailreplica_mbox01:
+  mailbox_index_mailreplica_mbox01:
+  mailbox_store_mailreplica_mbox01:
+  app-volume_mailreplica_mbox01:
+  mailbox_conf_mailreplica_cluster_mbox01:
+  mariadb_data_mailreplica_mbox02:
+  mailbox_data_mailreplica_mbox02:
+  mailbox_index_mailreplica_mbox02:
+  mailbox_store_mailreplica_mbox02:
+  app-volume_mailreplica_mbox02:
+  mailbox_conf_mailreplica_cluster_mbox02:
+  postgres_data_mailreplica:
+  storages_data_mailreplica:
+  carbonio-message-broker_data_mailreplica:
+  consul-data_mailreplica:
+  shared-videoserver_mailreplica:
+  kafka_data:
+

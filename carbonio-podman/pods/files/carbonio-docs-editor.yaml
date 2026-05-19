@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: carbonio-docs-editor
+  labels:
+    app: carbonio-docs-editor
+spec:
+  containers:
+    - name: app
+      image: localhost/carbonio-docs-editor:latest
+      securityContext:
+        capabilities:
+          add: [MKNOD, SYS_ADMIN, FOWNER, CHOWN, SYS_CHROOT]
+      volumeMounts:
+        - name: docs-editor-token
+          mountPath: /etc/carbonio/docs-editor/service-discover
+
+    - name: consul-agent
+      image: docker.io/hashicorp/consul:1.21
+      imagePullPolicy: Always
+      args: [agent, -client=0.0.0.0, -bind=0.0.0.0, -retry-join=consul-server, -grpc-port=8502, -config-dir=/consul/acl]
+      volumeMounts:
+        - name: consul-agent-acl
+          mountPath: /consul/acl/consul-agent-acl.hcl
+          subPath: consul-agent-acl.hcl
+          readOnly: true
+
+    - name: sidecar
+      image: registry.dev.zextras.com/dev/carbonio-docs-editor-sidecar:devel
+      imagePullPolicy: Always
+      env:
+        - name: CONSUL_HTTP_TOKEN
+          valueFrom:
+            configMapKeyRef:
+              name: consul-acl
+              key: bootstrap-token
+      volumeMounts:
+        - name: docs-editor-token
+          mountPath: /shared-tokens
+
+  volumes:
+    - name: docs-editor-token
+      hostPath:
+        path: ./tokens/docs-editor/service-discover
+        type: DirectoryOrCreate
+    - name: consul-agent-acl
+      configMap:
+        name: consul-acl
+        items:
+          - key: consul-agent-acl.hcl
+            path: consul-agent-acl.hcl
