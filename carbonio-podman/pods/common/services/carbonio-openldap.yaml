@@ -1,0 +1,16 @@
+# k3s-only: LDAP is outside the mesh, so mailbox(es), composed-ui and postfix
+# resolve carbonio-openldap by DNS at ldap://carbonio-openldap:1389.
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbonio-openldap
+  labels:
+    app: carbonio-openldap
+spec:
+  selector:
+    app: carbonio-openldap
+  ports:
+    - name: ldap
+      port: 1389
+      targetPort: 1389
+      protocol: TCP
