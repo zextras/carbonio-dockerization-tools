@@ -1,0 +1,52 @@
+{{- if and (eq (include "carbonio.coreEnabled" .) "true") .Values.monitoring.enabled }}
+# Custom Grafana dashboards are intentionally omitted in this slice; otel-lgtm
+# still accepts OTLP on 4317/4318 and serves Grafana on 3000.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: carbonio-monitoring
+  labels:
+    app: carbonio-monitoring
+spec:
+{{- if eq .Values.platform "k3s" }}
+  enableServiceLinks: false
+  imagePullSecrets:
+    - name: {{ .Values.image.pullSecret.name }}
+{{- end }}
+  containers:
+    - name: lgtm
+      image: docker.io/grafana/otel-lgtm:latest
+      ports:
+        - containerPort: 3000
+          hostPort: 3000
+        - containerPort: 4317
+          hostPort: 4317
+        - containerPort: 4318
+          hostPort: 4318
+{{- if eq .Values.platform "k3s" }}
+---
+# k3s-only: OTEL exporters across pods send directly to :4317 / :4318.
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbonio-monitoring
+  labels:
+    app: carbonio-monitoring
+spec:
+  selector:
+    app: carbonio-monitoring
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+      protocol: TCP
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+      protocol: TCP
+    - name: grafana
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+{{- end }}
+{{- end }}
