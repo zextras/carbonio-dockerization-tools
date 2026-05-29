@@ -1,0 +1,24 @@
+# k3s-only: OTEL exporters across pods send directly (outside the mesh) to
+# carbonio-monitoring:4317 (gRPC) / :4318 (HTTP); 3000 is the Grafana UI.
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbonio-monitoring
+  labels:
+    app: carbonio-monitoring
+spec:
+  selector:
+    app: carbonio-monitoring
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+      protocol: TCP
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+      protocol: TCP
+    - name: grafana
+      port: 3000
+      targetPort: 3000
+      protocol: TCP

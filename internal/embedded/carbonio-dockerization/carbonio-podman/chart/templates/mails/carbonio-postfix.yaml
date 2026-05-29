@@ -1,0 +1,67 @@
+{{- if .Values.groups.mails.enabled }}
+# MTA. Not in the mesh (no consul agent/sidecar) — talks to LDAP directly.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: carbonio-postfix
+  labels:
+    app: carbonio-postfix
+spec:
+{{- if eq .Values.platform "k3s" }}
+  enableServiceLinks: false
+  imagePullSecrets:
+    - name: {{ .Values.image.pullSecret.name }}
+{{- end }}
+  containers:
+    - name: app
+      image: registry.dev.zextras.com/dev/carbonio-mta:devel
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+{{- if eq .Values.platform "k3s" }}
+      # k8s DNS quirks for postfix:
+      #  - inet_protocols=ipv4: CoreDNS doesn't publish AAAA for IPv4-only Services;
+      #    default inet_protocols=all turns the missing AAAA into a 5.4.4 bounce.
+      #  - {smtp,lmtp}_dns_resolver_options=res_defnames,res_dnsrch: postfix's DNS
+      #    client doesn't apply /etc/resolv.conf search domains by default, so bare
+      #    Service names like carbonio-mailbox resolve via libc/getent but NOT via
+      #    postfix lmtp delivery.
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          /opt/zextras/common/sbin/postconf \
+            inet_protocols=ipv4 \
+            lmtp_dns_resolver_options='res_defnames, res_dnsrch' \
+            smtp_dns_resolver_options='res_defnames, res_dnsrch'
+          exec /entrypoint.sh
+{{- end }}
+      env:
+        - name: LDAP_HOST
+          value: "carbonio-openldap"
+        - name: LDAP_PORT
+          value: "1389"
+        - name: LDAP_ROOT_PASSWORD
+          value: "qh6hWZvc"
+        - name: LDAP_ADMIN_PASSWORD
+          value: "password"
+      ports:
+        - containerPort: 25
+          hostPort: 20025
+{{- if eq .Values.platform "k3s" }}
+---
+# k3s-only: the MTA registers as a Carbonio server in LDAP under its hostname,
+# so legacy `zmprov gas` resolution needs carbonio-postfix to resolve too.
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbonio-postfix
+  labels:
+    app: carbonio-postfix
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: carbonio-postfix
+  ports:
+    - name: smtp
+      port: 25
+{{- end }}
+{{- end }}

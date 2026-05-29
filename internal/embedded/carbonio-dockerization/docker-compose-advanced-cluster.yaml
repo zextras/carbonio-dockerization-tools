@@ -1,0 +1,76 @@
+services:
+
+  carbonio-mailbox:
+    volumes:
+      - app-volume_advanced_cluster_mbox01:/localconfig
+      - mailbox_data_advanced_cluster_mbox01:/opt/zextras/data/mailbox
+      - mailbox_index_advanced_cluster_mbox01:/opt/zextras/index
+      - mailbox_store_advanced_cluster_mbox01:/opt/zextras/store
+      - mailbox_conf_zextras_advanced_cluster_mbox01:/opt/zextras/conf/zextras
+
+  carbonio-mariadb:
+    volumes:
+      - mariadb_data_advanced_cluster_mbox01:/var/lib/mysql
+
+  carbonio-mailbox02:
+    image: ${CARBONIO_ADVANCED_IMAGE:-registry.dev.zextras.com/dev/carbonio-advanced:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+    depends_on:
+      carbonio-postgres:
+        condition: service_healthy
+    volumes:
+      - app-volume_advanced_cluster_mbox02:/localconfig
+      - mailbox_data_advanced_cluster_mbox02:/opt/zextras/data/mailbox
+      - mailbox_index_advanced_cluster_mbox02:/opt/zextras/index
+      - mailbox_store_advanced_cluster_mbox02:/opt/zextras/store
+      - mailbox_conf_zextras_advanced_cluster_mbox02:/opt/zextras/conf/zextras
+
+  carbonio-mariadb02:
+    image: ${CARBONIO_MARIADB_IMAGE:-registry.dev.zextras.com/dev/carbonio-mariadb:${CARBONIO_GLOBAL_IMAGES_TAG:-devel}}
+    volumes:
+      - mariadb_data_advanced_cluster_mbox02:/var/lib/mysql
+
+  carbonio-postgres:
+    volumes:
+      - postgres_data_advanced_cluster:/var/lib/postgresql/data
+      - ./postgres/init_files.sql:/docker-entrypoint-initdb.d/init_files.sql
+      - ./postgres/init_wsc.sql:/docker-entrypoint-initdb.d/init_wsc.sql
+      - ./postgres/init_advanced.sql:/docker-entrypoint-initdb.d/init_advanced.sql
+
+  carbonio-storages:
+    volumes:
+      - storages_data_advanced_cluster:/storage
+
+  carbonio-message-broker:
+    volumes:
+      - carbonio-message-broker_data_advanced_cluster:/var/lib/rabbitmq
+
+  consul:
+    volumes:
+      - consul-data_advanced_cluster:/consul/data
+
+  carbonio-videoserver:
+    volumes:
+      - shared-videoserver_advanced-cluster:/var/lib/videoserver
+
+  carbonio-videorecorder:
+    volumes:
+      - shared-videoserver_advanced-cluster:/var/lib/videoserver
+volumes:
+  mariadb_data_advanced_cluster_mbox01:
+  mailbox_data_advanced_cluster_mbox01:
+  mailbox_index_advanced_cluster_mbox01:
+  mailbox_store_advanced_cluster_mbox01:
+  app-volume_advanced_cluster_mbox01:
+  mailbox_conf_zextras_advanced_cluster_mbox01:
+  mariadb_data_advanced_cluster_mbox02:
+  mailbox_data_advanced_cluster_mbox02:
+  mailbox_index_advanced_cluster_mbox02:
+  mailbox_store_advanced_cluster_mbox02:
+  mailbox_conf_zextras_advanced_cluster_mbox02:
+  app-volume_advanced_cluster_mbox02:
+  postgres_data_advanced_cluster:
+  storages_data_advanced_cluster:
+  carbonio-message-broker_data_advanced_cluster:
+  consul-data_advanced_cluster:
+  shared-videoserver_advanced-cluster:
+
