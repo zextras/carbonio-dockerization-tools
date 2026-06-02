@@ -1,0 +1,74 @@
+{{- if .Values.groups.wsc.enabled }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: carbonio-ws-collaboration
+  labels:
+    app: carbonio-ws-collaboration
+spec:
+  restartPolicy: Always
+{{- if eq .Values.platform "k3s" }}
+  enableServiceLinks: false
+  imagePullSecrets:
+    - name: {{ .Values.image.pullSecret.name }}
+{{- end }}
+  containers:
+    - name: app
+      image: registry.dev.zextras.com/dev/carbonio-ws-collaboration:devel
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      env:
+        - name: JAVA_TOOL_OPTIONS
+          value: "-javaagent:/opt/zextras/opentelemetry-javaagent.jar -Dsun.net.inetaddr.ttl=0"
+        - name: _JAVA_OPTIONS
+          value: "-Xms128m -Xmx512m"
+        - name: OTEL_LOGS_EXPORTER
+          value: "otlp"
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "http://carbonio-monitoring:4318"
+        - name: OTEL_METRICS_EXPORTER
+          value: "otlp"
+        - name: OTEL_TRACES_EXPORTER
+          value: "otlp"
+{{- if not .Values.monitoring.enabled }}
+        - name: OTEL_SDK_DISABLED
+          value: "true"
+{{- end }}
+      command: [ "/busybox/sh", "-c" ]
+      args:
+        - |
+          while [ ! -f /etc/carbonio/ws-collaboration/service-discover/token ]; do sleep 1; done
+          export CONSUL_HTTP_TOKEN=$(cat /etc/carbonio/ws-collaboration/service-discover/token)
+          exec java -jar /app/app.jar
+      volumeMounts:
+        - name: ws-collaboration-token
+          mountPath: /etc/carbonio/ws-collaboration/service-discover
+    - name: consul-agent
+      image: docker.io/hashicorp/consul:1.21
+      args: [agent, -client=0.0.0.0, -bind=0.0.0.0, -retry-join=consul-server, -grpc-port=8502, -config-dir=/consul/acl]
+      volumeMounts:
+        - name: consul-agent-acl
+          mountPath: /consul/acl/consul-agent-acl.hcl
+          subPath: consul-agent-acl.hcl
+          readOnly: true
+    - name: sidecar
+      image: registry.dev.zextras.com/dev/carbonio-ws-collaboration-sidecar:devel
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      env:
+        - name: CONSUL_HTTP_TOKEN
+          valueFrom:
+            configMapKeyRef:
+              name: consul-acl
+              key: bootstrap-token
+      volumeMounts:
+        - name: ws-collaboration-token
+          mountPath: /shared-tokens
+  volumes:
+    - name: ws-collaboration-token
+      emptyDir: {}
+    - name: consul-agent-acl
+      configMap:
+        name: consul-acl
+        items:
+          - key: consul-agent-acl.hcl
+            path: consul-agent-acl.hcl
+{{- end }}
