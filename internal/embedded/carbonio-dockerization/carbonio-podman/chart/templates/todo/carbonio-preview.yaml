@@ -1,0 +1,38 @@
+{{- if .Values.groups.todo.enabled }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: carbonio-preview
+  labels:
+    app: carbonio-preview
+spec:
+{{- if eq .Values.platform "k3s" }}
+  enableServiceLinks: false
+  imagePullSecrets:
+    - name: {{ .Values.image.pullSecret.name }}
+{{- end }}
+  containers:
+    - name: app
+      image: {{ required "images.carbonio-preview-ce is required" (index .Values.images "carbonio-preview-ce") }}
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+
+    - name: consul-agent
+      image: {{ required "images.consul is required" (index .Values.images "consul") }}
+      args: [agent, -client=0.0.0.0, -bind=0.0.0.0, -retry-join=consul-server, -grpc-port=8502, -config-dir=/consul/acl]
+      volumeMounts:
+        - name: consul-agent-acl
+          mountPath: /consul/acl/consul-agent-acl.hcl
+          subPath: consul-agent-acl.hcl
+          readOnly: true
+
+    - name: sidecar
+      image: {{ required "images.carbonio-preview-sidecar is required" (index .Values.images "carbonio-preview-sidecar") }}
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+  volumes:
+    - name: consul-agent-acl
+      configMap:
+        name: consul-acl
+        items:
+          - key: consul-agent-acl.hcl
+            path: consul-agent-acl.hcl
+{{- end }}

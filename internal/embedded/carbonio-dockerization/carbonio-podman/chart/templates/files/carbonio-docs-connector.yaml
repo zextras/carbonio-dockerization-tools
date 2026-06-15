@@ -1,0 +1,57 @@
+{{- if .Values.groups.files.enabled }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: carbonio-docs-connector
+  labels:
+    app: carbonio-docs-connector
+spec:
+{{- if eq .Values.platform "k3s" }}
+  enableServiceLinks: false
+  imagePullSecrets:
+    - name: {{ .Values.image.pullSecret.name }}
+{{- end }}
+  containers:
+    - name: app
+      image: {{ required "images.carbonio-docs-connector is required" (index .Values.images "carbonio-docs-connector") }}
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          while [ ! -f /etc/carbonio/docs-connector/service-discover/token ]; do sleep 1; done
+          export CONSUL_HTTP_TOKEN=$(cat /etc/carbonio/docs-connector/service-discover/token)
+          exec /app/entrypoint.sh
+      volumeMounts:
+        - name: docs-connector-token
+          mountPath: /etc/carbonio/docs-connector/service-discover
+    - name: consul-agent
+      image: {{ required "images.consul is required" (index .Values.images "consul") }}
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      args: [agent, -client=0.0.0.0, -bind=0.0.0.0, -retry-join=consul-server, -grpc-port=8502, -config-dir=/consul/acl]
+      volumeMounts:
+        - name: consul-agent-acl
+          mountPath: /consul/acl/consul-agent-acl.hcl
+          subPath: consul-agent-acl.hcl
+          readOnly: true
+    - name: sidecar
+      image: {{ required "images.carbonio-docs-connector-sidecar is required" (index .Values.images "carbonio-docs-connector-sidecar") }}
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      env:
+        - name: CONSUL_HTTP_TOKEN
+          valueFrom:
+            configMapKeyRef:
+              name: consul-acl
+              key: bootstrap-token
+      volumeMounts:
+        - name: docs-connector-token
+          mountPath: /shared-tokens
+  volumes:
+    - name: docs-connector-token
+      emptyDir: {}
+    - name: consul-agent-acl
+      configMap:
+        name: consul-acl
+        items:
+          - key: consul-agent-acl.hcl
+            path: consul-agent-acl.hcl
+{{- end }}

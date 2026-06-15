@@ -1,0 +1,10 @@
+{{- if eq (include "carbonio.coreEnabled" .) "true" }}
+# Mounted into postgres at /docker-entrypoint-initdb.d (runs on first init only).
+# Replaces the ./postgres hostPath.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-scripts
+data:
+{{ (.Files.Glob "files/postgres/*").AsConfig | indent 2 }}
+{{- end }}
