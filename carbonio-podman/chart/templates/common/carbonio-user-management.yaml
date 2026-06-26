@@ -1,0 +1,57 @@
+{{- if eq (include "carbonio.coreEnabled" .) "true" }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: carbonio-user-management
+  labels:
+    app: carbonio-user-management
+spec:
+{{- if eq .Values.platform "k3s" }}
+  enableServiceLinks: false
+  imagePullSecrets:
+    - name: {{ .Values.image.pullSecret.name }}
+{{- end }}
+  containers:
+    - name: app
+      image: {{ required "images.carbonio-user-management is required" (index .Values.images "carbonio-user-management") }}
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      env:
+        - name: QUARKUS_OTEL_SDK_DISABLED
+          value: "{{ not .Values.monitoring.enabled }}"
+        - name: QUARKUS_OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "http://carbonio-monitoring:4317"
+      volumeMounts:
+        - name: um-token
+          mountPath: /etc/carbonio/user-management/service-discover
+
+    - name: consul-agent
+      image: {{ required "images.consul is required" (index .Values.images "consul") }}
+      args: [agent, -client=0.0.0.0, -bind=0.0.0.0, -retry-join=consul-server, -grpc-port=8502, -config-dir=/consul/acl]
+      volumeMounts:
+        - name: consul-agent-acl
+          mountPath: /consul/acl/consul-agent-acl.hcl
+          subPath: consul-agent-acl.hcl
+          readOnly: true
+
+    - name: sidecar
+      image: {{ required "images.carbonio-user-management-sidecar is required" (index .Values.images "carbonio-user-management-sidecar") }}
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      env:
+        - name: CONSUL_HTTP_TOKEN
+          valueFrom:
+            configMapKeyRef:
+              name: consul-acl
+              key: bootstrap-token
+      volumeMounts:
+        - name: um-token
+          mountPath: /shared-tokens
+  volumes:
+    - name: um-token
+      emptyDir: {}
+    - name: consul-agent-acl
+      configMap:
+        name: consul-acl
+        items:
+          - key: consul-agent-acl.hcl
+            path: consul-agent-acl.hcl
+{{- end }}
