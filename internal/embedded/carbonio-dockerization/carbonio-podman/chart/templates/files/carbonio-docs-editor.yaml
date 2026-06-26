@@ -1,0 +1,55 @@
+{{- if and .Values.groups.files.enabled .Values.docsEditor.enabled }}
+# Optional (not published): built locally. Enable via docsEditor.enabled
+# and point docsEditor.image at your build.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: carbonio-docs-editor
+  labels:
+    app: carbonio-docs-editor
+spec:
+{{- if eq .Values.platform "k3s" }}
+  enableServiceLinks: false
+  imagePullSecrets:
+    - name: {{ .Values.image.pullSecret.name }}
+{{- end }}
+  containers:
+    - name: app
+      image: {{ required "images.carbonio-docs-editor is required" (index .Values.images "carbonio-docs-editor") }}
+      securityContext:
+        capabilities:
+          add: [MKNOD, SYS_ADMIN, FOWNER, CHOWN, SYS_CHROOT]
+      volumeMounts:
+        - name: docs-editor-token
+          mountPath: /etc/carbonio/docs-editor/service-discover
+    - name: consul-agent
+      image: {{ required "images.consul is required" (index .Values.images "consul") }}
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      args: [agent, -client=0.0.0.0, -bind=0.0.0.0, -retry-join=consul-server, -grpc-port=8502, -config-dir=/consul/acl]
+      volumeMounts:
+        - name: consul-agent-acl
+          mountPath: /consul/acl/consul-agent-acl.hcl
+          subPath: consul-agent-acl.hcl
+          readOnly: true
+    - name: sidecar
+      image: {{ required "images.carbonio-docs-editor-sidecar is required" (index .Values.images "carbonio-docs-editor-sidecar") }}
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      env:
+        - name: CONSUL_HTTP_TOKEN
+          valueFrom:
+            configMapKeyRef:
+              name: consul-acl
+              key: bootstrap-token
+      volumeMounts:
+        - name: docs-editor-token
+          mountPath: /shared-tokens
+  volumes:
+    - name: docs-editor-token
+      emptyDir: {}
+    - name: consul-agent-acl
+      configMap:
+        name: consul-acl
+        items:
+          - key: consul-agent-acl.hcl
+            path: consul-agent-acl.hcl
+{{- end }}
