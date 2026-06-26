@@ -1,0 +1,147 @@
+{{- if eq (include "carbonio.coreEnabled" .) "true" }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: consul-server
+  labels:
+    app: consul-server
+spec:
+{{- if eq .Values.platform "k3s" }}
+  enableServiceLinks: false
+  imagePullSecrets:
+    - name: {{ .Values.image.pullSecret.name }}
+{{- end }}
+  containers:
+    - name: consul
+      image: {{ required "images.consul is required" (index .Values.images "consul") }}
+      args:
+        - agent
+        - -server
+        - -bootstrap-expect=1
+        - -ui
+        - -client=0.0.0.0
+        - -grpc-port=8502
+        - -bind=0.0.0.0
+        - -data-dir=/consul/data
+        - -disable-host-node-id
+        - -node=consul-server
+        - -config-dir=/consul/acl
+      ports:
+        - containerPort: 8500
+          hostPort: 8500
+        - containerPort: 8502
+          hostPort: 8502
+      volumeMounts:
+        - name: consul-data
+          mountPath: /consul/data
+        - name: consul-server-acl
+          mountPath: /consul/acl/consul-server-acl.hcl
+          subPath: consul-server-acl.hcl
+          readOnly: true
+    - name: kv-init
+      image: {{ required "images.curl is required" (index .Values.images "curl") }}
+      env:
+        - name: CONSUL_HTTP_TOKEN
+          valueFrom:
+            configMapKeyRef:
+              name: consul-acl
+              key: bootstrap-token
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          echo "[kv-init] Waiting for consul server..."
+          until curl -sf http://localhost:8500/v1/status/leader | grep -q ':'; do sleep 1; done
+          echo "[kv-init] Consul ready. Running KV init scripts..."
+          for f in /consul-kv/*.sh; do
+            echo "[kv-init] Running $(basename "$f")..."
+            sh "$f"
+          done
+          echo "[kv-init] Done. Sleeping."
+          exec sleep infinity
+      volumeMounts:
+        - name: consul-kv-scripts
+          mountPath: /consul-kv
+          readOnly: true
+  volumes:
+    - name: consul-data
+      persistentVolumeClaim:
+        claimName: consul-data
+    - name: consul-kv-scripts
+      configMap:
+        name: consul-kv-scripts
+    - name: consul-server-acl
+      configMap:
+        name: consul-acl
+        items:
+          - key: consul-server-acl.hcl
+            path: consul-server-acl.hcl
+{{- if eq .Values.platform "k3s" }}
+---
+# k3s-only: stable DNS name for client agents to -retry-join. ClusterIP is fine
+# with a single server (bootstrap-expect=1); multi-server would need headless.
+apiVersion: v1
+kind: Service
+metadata:
+  name: consul-server
+  labels:
+    app: consul-server
+spec:
+  selector:
+    app: consul-server
+  ports:
+    - name: server
+      port: 8300
+      targetPort: 8300
+      protocol: TCP
+    - name: serf-lan-tcp
+      port: 8301
+      targetPort: 8301
+      protocol: TCP
+    - name: serf-lan-udp
+      port: 8301
+      targetPort: 8301
+      protocol: UDP
+    - name: http
+      port: 8500
+      targetPort: 8500
+      protocol: TCP
+    - name: grpc
+      port: 8502
+      targetPort: 8502
+      protocol: TCP
+---
+# k3s-only: carbonio-advanced's JGroups stack (baked into the image, not
+# overridable per-deploy) uses the bare name `consul`. Alias it to the consul
+# server with a second Service of that name.
+apiVersion: v1
+kind: Service
+metadata:
+  name: consul
+  labels:
+    app: consul-server
+spec:
+  selector:
+    app: consul-server
+  ports:
+    - name: server
+      port: 8300
+      targetPort: 8300
+      protocol: TCP
+    - name: serf-lan-tcp
+      port: 8301
+      targetPort: 8301
+      protocol: TCP
+    - name: serf-lan-udp
+      port: 8301
+      targetPort: 8301
+      protocol: UDP
+    - name: http
+      port: 8500
+      targetPort: 8500
+      protocol: TCP
+    - name: grpc
+      port: 8502
+      targetPort: 8502
+      protocol: TCP
+{{- end }}
+{{- end }}

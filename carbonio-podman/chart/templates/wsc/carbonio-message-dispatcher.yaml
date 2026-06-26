@@ -1,0 +1,111 @@
+{{- if .Values.groups.wsc.enabled }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: carbonio-message-dispatcher
+  labels:
+    app: carbonio-message-dispatcher
+spec:
+  restartPolicy: Always
+{{- if eq .Values.platform "k3s" }}
+  enableServiceLinks: false
+  imagePullSecrets:
+    - name: {{ .Values.image.pullSecret.name }}
+{{- end }}
+  containers:
+    - name: auth
+      image: {{ required "images.carbonio-message-dispatcher-auth is required" (index .Values.images "carbonio-message-dispatcher-auth") }}
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      env:
+        - name: JAVA_TOOL_OPTIONS
+          value: "-javaagent:/opt/zextras/opentelemetry-javaagent.jar"
+        - name: _JAVA_OPTIONS
+          value: "-Xms128m -Xmx512m"
+        - name: OTEL_LOGS_EXPORTER
+          value: "otlp"
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "http://carbonio-monitoring:4318"
+        - name: OTEL_METRICS_EXPORTER
+          value: "otlp"
+        - name: OTEL_TRACES_EXPORTER
+          value: "otlp"
+{{- if not .Values.monitoring.enabled }}
+        - name: OTEL_SDK_DISABLED
+          value: "true"
+{{- end }}
+      command: ["/busybox/sh", "-c"]
+      args:
+        - |
+          while [ ! -f /etc/carbonio/message-dispatcher/service-discover/token ]; do sleep 1; done
+          export CONSUL_HTTP_TOKEN=$(cat /etc/carbonio/message-dispatcher/service-discover/token)
+          exec java -Djava.net.preferIPv4Stack=true \
+            -jar /app/carbonio-message-dispatcher-auth.jar
+      volumeMounts:
+        - name: token-message-dispatcher
+          mountPath: /etc/carbonio/message-dispatcher/service-discover
+    - name: mongoose
+      image: {{ required "images.carbonio-message-dispatcher-mongoose is required" (index .Values.images "carbonio-message-dispatcher-mongoose") }}
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      env:
+        - name: CONSUL_HTTP_TOKEN
+          valueFrom:
+            configMapKeyRef:
+              name: consul-acl
+              key: bootstrap-token
+      volumeMounts:
+        - name: token-message-dispatcher
+          mountPath: /etc/carbonio/message-dispatcher/service-discover
+    - name: consul-agent
+      image: {{ required "images.consul is required" (index .Values.images "consul") }}
+      args: [agent, -client=0.0.0.0, -bind=0.0.0.0, -retry-join=consul-server, -grpc-port=8502, -config-dir=/consul/acl]
+      volumeMounts:
+        - name: consul-agent-acl
+          mountPath: /consul/acl/consul-agent-acl.hcl
+          subPath: consul-agent-acl.hcl
+          readOnly: true
+    - name: sidecar-auth
+      image: {{ required "images.carbonio-message-dispatcher-auth-sidecar is required" (index .Values.images "carbonio-message-dispatcher-auth-sidecar") }}
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      env:
+        - name: CONSUL_HTTP_TOKEN
+          valueFrom:
+            configMapKeyRef:
+              name: consul-acl
+              key: bootstrap-token
+      volumeMounts:
+        - name: token-message-dispatcher
+          mountPath: /shared-tokens
+    - name: sidecar-http
+      image: {{ required "images.carbonio-message-dispatcher-http-sidecar is required" (index .Values.images "carbonio-message-dispatcher-http-sidecar") }}
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      env:
+        - name: CONSUL_HTTP_TOKEN
+          valueFrom:
+            configMapKeyRef:
+              name: consul-acl
+              key: bootstrap-token
+      volumeMounts:
+        - name: token-message-dispatcher
+          mountPath: /shared-tokens
+    - name: sidecar-xmpp
+      image: {{ required "images.carbonio-message-dispatcher-xmpp-sidecar is required" (index .Values.images "carbonio-message-dispatcher-xmpp-sidecar") }}
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      env:
+        - name: CONSUL_HTTP_TOKEN
+          valueFrom:
+            configMapKeyRef:
+              name: consul-acl
+              key: bootstrap-token
+      volumeMounts:
+        - name: token-message-dispatcher
+          mountPath: /shared-tokens
+  volumes:
+    - name: token-message-dispatcher
+      emptyDir: {}
+    - name: consul-agent-acl
+      configMap:
+        name: consul-acl
+        items:
+          - key: consul-agent-acl.hcl
+            path: consul-agent-acl.hcl
+{{- end }}
