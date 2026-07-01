@@ -1,6 +1,0 @@
-apiVersion: v2
-name: carbonio
-description: Carbonio on a Consul service mesh for k3s (bare pods, group-toggled)
-type: application
-version: 0.1.3
-appVersion: "devel"
