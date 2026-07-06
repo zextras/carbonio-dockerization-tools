@@ -1,0 +1,33 @@
+# k3s provisions these via the default local-path StorageClass. Podman
+# auto-creates volumes from the claimName refs, so PVC objects are k3s-only.
+{{- if eq .Values.platform "k3s" }}
+{{- if eq (include "carbonio.coreEnabled" .) "true" }}
+{{- range list "consul-data" "ldap-data" "ldap-run" "ldap-conf" "postgres-data" "storages-data" }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ . }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi
+{{- end }}
+{{- end }}
+{{- /* mailbox PVCs come from the StatefulSet's volumeClaimTemplates on k3s */ -}}
+{{- if .Values.groups.todo.enabled }}
+{{- range list "videoserver-data" }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ . }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi
+{{- end }}
+{{- end }}
+{{- end }}
