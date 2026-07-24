@@ -1,0 +1,153 @@
+{{- if .Values.groups.mails.enabled }}
+{{- if eq .Values.platform "k3s" }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: carbonio-mailbox
+  labels:
+    app: carbonio-mailbox
+spec:
+  serviceName: carbonio-mailbox
+  replicas: {{ .Values.groups.mails.replicas | default 2 }}
+  # OrderedReady (the default) so mailbox-0 fully starts before -1, giving the
+  # auth-DB migration (shared postgres) time to complete on one replica before
+  # the next tries to race it. Not bulletproof — "Ready" means containers are
+  # running, not that mailboxd has finished its internal boot — but in practice
+  # mailboxd startup is long enough that the window is small.
+  podManagementPolicy: OrderedReady
+  selector:
+    matchLabels:
+      app: carbonio-mailbox
+  template:
+    metadata:
+      labels:
+        app: carbonio-mailbox
+    spec:
+      enableServiceLinks: false
+      imagePullSecrets:
+        - name: {{ .Values.image.pullSecret.name }}
+      containers:
+{{ include "carbonio.mailbox.containers" . | indent 8 }}
+      volumes:
+{{ include "carbonio.mailbox.sharedVolumes" . | indent 8 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: mailbox-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+    - metadata:
+        name: mailbox-index
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+    - metadata:
+        name: mailbox-store
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+    - metadata:
+        name: mariadb-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+---
+# Headless governing Service required by the StatefulSet (spec.serviceName).
+# Used by k8s to provision per-pod DNS records under
+# <pod>.carbonio-mailbox.<ns>.svc.cluster.local.
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbonio-mailbox
+  labels:
+    app: carbonio-mailbox
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: carbonio-mailbox
+  ports:
+    - name: http
+      port: 8080
+    - name: admin
+      port: 7071
+    - name: lookup
+      port: 7072
+    - name: lmtp
+      port: 7025
+{{- /*
+Per-pod Services so the bare short names (carbonio-mailbox-0, -1, ...) stored
+in LDAP by mailboxd's entrypoint resolve cluster-wide via the standard search
+path. Selector uses the auto-injected `statefulset.kubernetes.io/pod-name`
+label so each Service targets exactly one replica.
+
+ClusterIP (not headless): zmproxyconfgen bakes the resolved IP into
+zm_lookup_handlers. A virtual ClusterIP is stable across pod recreation
+(unlike a real pod IP), so nginx doesn't break when a replica is rescheduled.
+*/ -}}
+{{- range $i, $_ := until (int (.Values.groups.mails.replicas | default 2)) }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbonio-mailbox-{{ $i }}
+  labels:
+    app: carbonio-mailbox
+spec:
+  publishNotReadyAddresses: true
+  selector:
+    statefulset.kubernetes.io/pod-name: carbonio-mailbox-{{ $i }}
+  # ClusterIP Services only route ports declared here (unlike headless, which
+  # gave nginx direct pod-IP access on any port mailboxd listened on). Need to
+  # cover every port the carbonio nginx upstreams target: 8080 (http), 8443
+  # (https), 7071 (admin), 7072 (nslookup), 7025 (lmtp), 8742/8743 (auth).
+  ports:
+    - name: http
+      port: 8080
+    - name: https
+      port: 8443
+    - name: admin
+      port: 7071
+    - name: lookup
+      port: 7072
+    - name: lmtp
+      port: 7025
+    - name: auth
+      port: 8742
+    - name: auth-https
+      port: 8743
+{{- end }}
+{{- else }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: carbonio-mailbox
+  labels:
+    app: carbonio-mailbox
+spec:
+  containers:
+{{ include "carbonio.mailbox.containers" . | indent 4 }}
+  volumes:
+{{ include "carbonio.mailbox.sharedVolumes" . | indent 4 }}
+    - name: mailbox-data
+      persistentVolumeClaim:
+        claimName: mailbox-data
+    - name: mailbox-index
+      persistentVolumeClaim:
+        claimName: mailbox-index
+    - name: mailbox-store
+      persistentVolumeClaim:
+        claimName: mailbox-store
+    - name: mariadb-data
+      persistentVolumeClaim:
+        claimName: mariadb-data
+{{- end }}
+{{- end }}
