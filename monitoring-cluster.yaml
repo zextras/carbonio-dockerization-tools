@@ -1,0 +1,11 @@
+services:
+  carbonio-mailbox02:
+    environment:
+      - JAVA_TOOL_OPTIONS=-javaagent:/opt/zextras/opentelemetry-javaagent.jar
+      - OTEL_SERVICE_NAME=mailbox
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_METRICS_EXPORTER=none
+    depends_on:
+      - otel-collector
+
