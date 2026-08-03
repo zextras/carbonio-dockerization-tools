@@ -1,0 +1,21 @@
+# k3s provisions these via the default local-path StorageClass. Podman
+# auto-creates volumes from the claimName refs, so PVC objects are k3s-only.
+# All core stateful services (consul/postgres/openldap/storages) and the
+# mailbox now get their PVCs from StatefulSet volumeClaimTemplates; only the
+# optional videoserver (still a bare Pod) needs a static PVC here.
+{{- if eq .Values.platform "k3s" }}
+{{- if .Values.groups.todo.enabled }}
+{{- range list "videoserver-data" }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ . }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi
+{{- end }}
+{{- end }}
+{{- end }}
