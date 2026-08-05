@@ -1,0 +1,24 @@
+# Override file for Apple Silicon (ARM64) Macs
+# Forces x86/amd64 emulation for the images that still have no working ARM64
+# variant. Everything not listed here now runs natively: most of the registry
+# is multiarch, so pinning it would only cost Rosetta emulation.
+
+services:
+  # amd64-only manifest lists: the arm64 pull finds no match
+  carbonio-message-broker:
+    platform: linux/amd64
+
+  carbonio-message-dispatcher:
+    platform: linux/amd64
+
+  carbonio-tasks:
+    platform: linux/amd64
+
+  # built locally: the carbonio-docs-editor apt package only exists for amd64
+  carbonio-docs-editor:
+    platform: linux/amd64
+
+  # the arm64 image ships an x86-64 runner binary (e_machine 0x3e) and no
+  # /lib64, so it crash-loops on the missing dynamic loader
+  carbonio-docs-connector:
+    platform: linux/amd64
