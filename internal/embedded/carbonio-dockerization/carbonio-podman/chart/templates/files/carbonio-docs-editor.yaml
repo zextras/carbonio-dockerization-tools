@@ -1,0 +1,33 @@
+{{- if and .Values.groups.files.enabled .Values.docsEditor.enabled }}
+# Optional (not published): built locally. Enable via docsEditor.enabled
+# and point docsEditor.image at your build.
+{{- if eq .Values.platform "k3s" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: carbonio-docs-editor
+  labels:
+    app: carbonio-docs-editor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: carbonio-docs-editor
+  template:
+    metadata:
+      labels:
+        app: carbonio-docs-editor
+    spec:
+{{ include "carbonio.deployment.k3sPodDefaults" . | indent 6 }}
+{{ include "carbonio.docs-editor.podbody" . | indent 6 }}
+{{- else }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: carbonio-docs-editor
+  labels:
+    app: carbonio-docs-editor
+spec:
+{{ include "carbonio.docs-editor.podbody" . | indent 2 }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,31 @@
+{{- if and (eq (include "carbonio.coreEnabled" .) "true") (ne .Values.edition "ce") }}
+{{- if eq .Values.platform "k3s" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: carbonio-license-service
+  labels:
+    app: carbonio-license-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: carbonio-license-service
+  template:
+    metadata:
+      labels:
+        app: carbonio-license-service
+    spec:
+{{ include "carbonio.deployment.k3sPodDefaults" . | indent 6 }}
+{{ include "carbonio.license-service.podbody" . | indent 6 }}
+{{- else }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: carbonio-license-service
+  labels:
+    app: carbonio-license-service
+spec:
+{{ include "carbonio.license-service.podbody" . | indent 2 }}
+{{- end }}
+{{- end }}
