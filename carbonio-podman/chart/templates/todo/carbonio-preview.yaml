@@ -1,0 +1,31 @@
+{{- if .Values.groups.todo.enabled }}
+{{- if eq .Values.platform "k3s" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: carbonio-preview
+  labels:
+    app: carbonio-preview
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: carbonio-preview
+  template:
+    metadata:
+      labels:
+        app: carbonio-preview
+    spec:
+{{ include "carbonio.deployment.k3sPodDefaults" . | indent 6 }}
+{{ include "carbonio.preview.podbody" . | indent 6 }}
+{{- else }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: carbonio-preview
+  labels:
+    app: carbonio-preview
+spec:
+{{ include "carbonio.preview.podbody" . | indent 2 }}
+{{- end }}
+{{- end }}
