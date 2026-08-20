@@ -1,0 +1,31 @@
+{{- if .Values.groups.wsc.enabled }}
+{{- if eq .Values.platform "k3s" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: carbonio-message-dispatcher
+  labels:
+    app: carbonio-message-dispatcher
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: carbonio-message-dispatcher
+  template:
+    metadata:
+      labels:
+        app: carbonio-message-dispatcher
+    spec:
+{{ include "carbonio.deployment.k3sPodDefaults" . | indent 6 }}
+{{ include "carbonio.message-dispatcher.podbody" . | indent 6 }}
+{{- else }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: carbonio-message-dispatcher
+  labels:
+    app: carbonio-message-dispatcher
+spec:
+{{ include "carbonio.message-dispatcher.podbody" . | indent 2 }}
+{{- end }}
+{{- end }}
