@@ -1,0 +1,71 @@
+# macOS has no native k3s, so k3d runs it inside a docker container. Included by
+# the main Makefile — run targets from there. See k3s.md §7.
+#
+# The node container publishes K3D_PORTS onto macOS and the chart's hostPorts
+# bind in that container's netns, so k3s.md §6 works on localhost — same model
+# as Linux, no Service needed (servicelb is disabled below anyway).
+#
+# Cluster size follows Docker Desktop's Resources setting; 16 GB for a full
+# install.
+
+CLUSTER   ?= carbonio
+
+# k3s's containerd cannot read ~/.docker/config.json, so the pull secret is
+# built from your `docker login` credential in the keychain. `?=` keeps an
+# env-provided value and defers the lookup, so `make help` never hits the
+# keychain.
+KEYCHAIN_GET   = echo $(REGISTRY_SERVER) | docker-credential-osxkeychain get 2>/dev/null
+REGISTRY_USER ?= $(shell $(KEYCHAIN_GET) | python3 -c 'import json,sys; print(json.load(sys.stdin).get("Username",""))' 2>/dev/null)
+REGISTRY_PASS ?= $(shell $(KEYCHAIN_GET) | python3 -c 'import json,sys; print(json.load(sys.stdin).get("Secret",""))' 2>/dev/null)
+
+# composed-ui 443/6071, consul 8500, postfix 20025, portainer 30777/30779.
+# Docker squats each one on macOS whether or not anything serves it, so ports for
+# off-by-default things are opt-in (3000 Grafana, 30808 ChartMuseum):
+#   make install_k3s EXTRA_PORTS="3000:3000 30808:30808"
+# consul 8502 and OTLP 4317/4318 stay unpublished — in-cluster clients only.
+# Both lists are frozen at cluster creation; changing them needs uninstall_k3s.
+K3D_PORTS   ?= 443:443 6071:6071 8500:8500 20025:20025 30777:30777 30779:30779
+EXTRA_PORTS ?=
+
+.PHONY: platform_help install_k3s stop_k3s start_k3s uninstall_k3s import
+
+platform_help:
+	@echo "k3s lifecycle (macOS, k3d cluster '$(CLUSTER)'):"
+	@echo "  make install_k3s         Create the k3d cluster + namespace; secret requires REGISTRY_USER + REGISTRY_PASS"
+	@echo "  make stop_k3s            Stop the cluster's containers (k3d cluster stop)"
+	@echo "  make start_k3s           Start them again (k3d cluster start)"
+	@echo "  make uninstall_k3s       Delete the cluster and its volumes (k3d cluster delete)"
+	@echo "  make import IMAGE=x:tag  Load a locally built image into the cluster's containerd"
+	@echo ""
+	@echo "  Access: https://localhost , admin https://localhost:6071"
+	@echo "  Needs a running docker daemon; k3d follows DOCKER_CONTEXT/DOCKER_HOST."
+
+# traefik and servicelb are disabled for the same reason as Linux: they would
+# grab 80/443, which composed-ui binds via hostPort.
+install_k3s:
+	@command -v k3d >/dev/null 2>&1 || brew install k3d
+	@docker info >/dev/null 2>&1 || { \
+	  echo "No reachable docker daemon (context: $$(docker context show 2>/dev/null)) — start Docker Desktop." >&2; \
+	  exit 1; }
+	@echo "==> Creating k3d cluster $(CLUSTER) on docker context $$(docker context show 2>/dev/null)..."
+	k3d cluster create $(CLUSTER) \
+	  --k3s-arg '--disable=traefik@server:0' \
+	  --k3s-arg '--disable=servicelb@server:0' \
+	  $(foreach p,$(K3D_PORTS) $(EXTRA_PORTS),-p '$(p)@server:0') \
+	  --wait
+	$(MAKE) namespace registry_secret
+
+# stop/start keep the volumes and the image cache; delete drops both.
+stop_k3s:
+	k3d cluster stop $(CLUSTER)
+
+start_k3s:
+	k3d cluster start $(CLUSTER)
+
+uninstall_k3s:
+	k3d cluster delete $(CLUSTER)
+
+# k3s uses containerd, not the docker image store, so local builds need importing.
+import:
+	@test -n "$(IMAGE)" || { echo "usage: make import IMAGE=localhost/name:tag" >&2; exit 2; }
+	k3d image import $(IMAGE) -c $(CLUSTER)
