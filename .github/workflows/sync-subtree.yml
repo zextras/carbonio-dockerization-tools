@@ -52,16 +52,16 @@ jobs:
           fi
 
       - name: Push changes
-        if: steps.subtree.outputs.changed == 'true' && env.SOURCE_BRANCH == 'main'
+        if: steps.subtree.outputs.changed == 'true' && env.SOURCE_BRANCH == 'main' && github.ref_name == 'main'
         run: |
           git commit --allow-empty -m "chore: sync embedded carbonio-dockerization (${SOURCE_BRANCH})"
           git push origin "${GITHUB_REF_NAME}"
 
-      - name: Dry-run summary (non-main branches)
-        if: steps.subtree.outputs.changed == 'true' && env.SOURCE_BRANCH != 'main'
+      - name: Dry-run summary (non-main source or non-main target)
+        if: steps.subtree.outputs.changed == 'true' && (env.SOURCE_BRANCH != 'main' || github.ref_name != 'main')
         run: |
           echo "### Subtree pull from '${SOURCE_BRANCH}' succeeded" >> "$GITHUB_STEP_SUMMARY"
-          echo "Changes detected but not pushed (source is not main)." >> "$GITHUB_STEP_SUMMARY"
+          echo "Changes detected but not pushed (source is not main, or this run is not on main)." >> "$GITHUB_STEP_SUMMARY"
           echo "Files changed:" >> "$GITHUB_STEP_SUMMARY"
           git diff --name-only "origin/${GITHUB_REF_NAME}" >> "$GITHUB_STEP_SUMMARY"
 
