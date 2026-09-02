@@ -8,13 +8,13 @@ on:
       source-branch:
         description: "Branch to pull from carbonio-dockerization"
         required: true
-        default: "devel"
+        default: "main"
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     env:
-      SOURCE_BRANCH: ${{ github.event.client_payload.ref || github.event.inputs.source-branch || 'devel' }}
+      SOURCE_BRANCH: ${{ github.event.client_payload.ref || github.event.inputs.source-branch || 'main' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -45,25 +45,25 @@ jobs:
             "${SOURCE_BRANCH}" \
             -m "Squashed 'internal/embedded/carbonio-dockerization/' from ${SOURCE_BRANCH}"
 
-          if git diff --quiet HEAD origin/devel; then
+          if git diff --quiet HEAD "origin/${GITHUB_REF_NAME}"; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Push changes
-        if: steps.subtree.outputs.changed == 'true' && env.SOURCE_BRANCH == 'devel'
+        if: steps.subtree.outputs.changed == 'true' && env.SOURCE_BRANCH == 'main'
         run: |
           git commit --allow-empty -m "chore: sync embedded carbonio-dockerization (${SOURCE_BRANCH})"
-          git push origin devel
+          git push origin "${GITHUB_REF_NAME}"
 
-      - name: Dry-run summary (non-devel branches)
-        if: steps.subtree.outputs.changed == 'true' && env.SOURCE_BRANCH != 'devel'
+      - name: Dry-run summary (non-main branches)
+        if: steps.subtree.outputs.changed == 'true' && env.SOURCE_BRANCH != 'main'
         run: |
           echo "### Subtree pull from '${SOURCE_BRANCH}' succeeded" >> "$GITHUB_STEP_SUMMARY"
-          echo "Changes detected but not pushed (source is not devel)." >> "$GITHUB_STEP_SUMMARY"
+          echo "Changes detected but not pushed (source is not main)." >> "$GITHUB_STEP_SUMMARY"
           echo "Files changed:" >> "$GITHUB_STEP_SUMMARY"
-          git diff --name-only origin/devel >> "$GITHUB_STEP_SUMMARY"
+          git diff --name-only "origin/${GITHUB_REF_NAME}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: No changes
         if: steps.subtree.outputs.changed == 'false'
