@@ -1,0 +1,3 @@
+services:
+  carbonio-docs-editor:
+    platform: linux/amd64
