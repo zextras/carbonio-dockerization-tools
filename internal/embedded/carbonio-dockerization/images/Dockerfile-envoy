@@ -1,0 +1,27 @@
+# Builder runs on the native build host (no QEMU needed) and prepares
+# arch-specific binaries/scripts that are then COPY-ed into the final image.
+FROM --platform=$BUILDPLATFORM docker.io/library/alpine:3.23 AS builder
+ARG TARGETARCH
+ARG JQ_VERSION=1.7.1
+RUN apk add --no-cache curl && \
+    curl -fsSL -o /out/jq --create-dirs \
+        "https://github.com/jqlang/jq/releases/download/jq-${JQ_VERSION}/jq-linux-${TARGETARCH}" && \
+    chmod +x /out/jq && \
+    printf '#!/bin/sh\necho "${BOOTSTRAP_TOKEN:-00000000-0000-0000-0000-000000000000}"\n' \
+        > /out/service-discover && \
+    chmod +x /out/service-discover
+
+FROM docker.io/envoyproxy/envoy:v1.32-latest
+COPY --from=docker.io/hashicorp/consul:1.21 /bin/consul /usr/local/bin/consul
+COPY --from=builder /out/jq /usr/local/bin/jq
+# Fake service-discover binary — returns a predefined bootstrap token
+COPY --from=builder /out/service-discover /usr/local/bin/service-discover
+
+COPY images/entrypoint.sh /usr/local/bin/entrypoint.sh
+
+ENV SERVICE_NAME=""
+ENV SETUP_SCRIPT=""
+ENV TOKEN_FILE=""
+ENV BOOTSTRAP_TOKEN="00000000-0000-0000-0000-000000000000"
+
+ENTRYPOINT ["entrypoint.sh"]
